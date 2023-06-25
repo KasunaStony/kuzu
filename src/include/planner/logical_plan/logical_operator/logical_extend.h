@@ -9,7 +9,7 @@ class LogicalExtend : public BaseLogicalExtend {
 public:
     LogicalExtend(std::shared_ptr<binder::NodeExpression> boundNode,
         std::shared_ptr<binder::NodeExpression> nbrNode, std::shared_ptr<binder::RelExpression> rel,
-        common::RelDirection direction, binder::expression_vector properties, bool hasAtMostOneNbr,
+        ExtendDirection direction, binder::expression_vector properties, bool hasAtMostOneNbr,
         std::shared_ptr<LogicalOperator> child)
         : BaseLogicalExtend{LogicalOperatorType::EXTEND, std::move(boundNode), std::move(nbrNode),
               std::move(rel), direction, std::move(child)},

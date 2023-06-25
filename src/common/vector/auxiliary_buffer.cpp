@@ -1,29 +1,21 @@
 #include "common/vector/auxiliary_buffer.h"
 
-#include "common/in_mem_overflow_buffer_utils.h"
 #include "common/vector/value_vector.h"
 
 namespace kuzu {
 namespace common {
 
-void StringAuxiliaryBuffer::addString(
-    common::ValueVector* vector, uint32_t pos, char* value, uint64_t len) const {
-    assert(vector->dataType.typeID == STRING);
-    auto& entry = ((ku_string_t*)vector->getData())[pos];
-    InMemOverflowBufferUtils::copyString(value, len, entry, *inMemOverflowBuffer);
-}
-
 StructAuxiliaryBuffer::StructAuxiliaryBuffer(
-    const DataType& type, storage::MemoryManager* memoryManager) {
-    auto structTypeInfo = reinterpret_cast<StructTypeInfo*>(type.getExtraTypeInfo());
-    childrenVectors.reserve(structTypeInfo->getChildrenTypes().size());
-    for (auto structFieldType : structTypeInfo->getChildrenTypes()) {
-        childrenVectors.push_back(std::make_shared<ValueVector>(*structFieldType, memoryManager));
+    const LogicalType& type, storage::MemoryManager* memoryManager) {
+    auto fieldTypes = StructType::getFieldTypes(&type);
+    childrenVectors.reserve(fieldTypes.size());
+    for (auto fieldType : fieldTypes) {
+        childrenVectors.push_back(std::make_shared<ValueVector>(*fieldType, memoryManager));
     }
 }
 
 ListAuxiliaryBuffer::ListAuxiliaryBuffer(
-    const DataType& dataVectorType, storage::MemoryManager* memoryManager)
+    const LogicalType& dataVectorType, storage::MemoryManager* memoryManager)
     : capacity{common::DEFAULT_VECTOR_CAPACITY}, size{0}, dataVector{std::make_unique<ValueVector>(
                                                               dataVectorType, memoryManager)} {}
 
@@ -33,26 +25,41 @@ list_entry_t ListAuxiliaryBuffer::addList(uint64_t listSize) {
     while (size + listSize > capacity) {
         capacity *= 2;
     }
-    auto numBytesPerElement = dataVector->getNumBytesPerValue();
     if (needResizeDataVector) {
-        auto buffer = std::make_unique<uint8_t[]>(capacity * numBytesPerElement);
-        memcpy(dataVector->valueBuffer.get(), buffer.get(), size * numBytesPerElement);
-        dataVector->valueBuffer = std::move(buffer);
-        dataVector->nullMask->resize(capacity);
+        resizeDataVector(dataVector.get());
     }
     size += listSize;
     return listEntry;
 }
 
+void ListAuxiliaryBuffer::resizeDataVector(ValueVector* dataVector) {
+    // If the dataVector is a struct vector, we need to resize its field vectors.
+    if (dataVector->dataType.getPhysicalType() == PhysicalTypeID::STRUCT) {
+        auto fieldVectors = StructVector::getFieldVectors(dataVector);
+        for (auto& fieldVector : fieldVectors) {
+            resizeDataVector(fieldVector.get());
+        }
+    } else {
+        auto buffer = std::make_unique<uint8_t[]>(capacity * dataVector->getNumBytesPerValue());
+        memcpy(
+            buffer.get(), dataVector->valueBuffer.get(), size * dataVector->getNumBytesPerValue());
+        dataVector->valueBuffer = std::move(buffer);
+        dataVector->nullMask->resize(capacity);
+    }
+}
+
 std::unique_ptr<AuxiliaryBuffer> AuxiliaryBufferFactory::getAuxiliaryBuffer(
-    DataType& type, storage::MemoryManager* memoryManager) {
-    switch (type.typeID) {
-    case STRING:
+    LogicalType& type, storage::MemoryManager* memoryManager) {
+    switch (type.getPhysicalType()) {
+    case PhysicalTypeID::STRING:
         return std::make_unique<StringAuxiliaryBuffer>(memoryManager);
-    case STRUCT:
+    case PhysicalTypeID::STRUCT:
         return std::make_unique<StructAuxiliaryBuffer>(type, memoryManager);
-    case VAR_LIST:
-        return std::make_unique<ListAuxiliaryBuffer>(*type.getChildType(), memoryManager);
+    case PhysicalTypeID::VAR_LIST:
+        return std::make_unique<ListAuxiliaryBuffer>(
+            *VarListType::getChildType(&type), memoryManager);
+    case PhysicalTypeID::ARROW_COLUMN:
+        return std::make_unique<ArrowColumnAuxiliaryBuffer>();
     default:
         return nullptr;
     }

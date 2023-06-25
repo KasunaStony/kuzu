@@ -6,14 +6,13 @@
 namespace kuzu {
 namespace function {
 
-class VectorBooleanOperations : public VectorOperations {
-
+class VectorBooleanOperations {
 public:
-    static scalar_exec_func bindExecFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
+    static void bindExecFunction(common::ExpressionType expressionType,
+        const binder::expression_vector& children, scalar_exec_func& func);
 
-    static scalar_select_func bindSelectFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
+    static void bindSelectFunction(common::ExpressionType expressionType,
+        const binder::expression_vector& children, scalar_select_func& func);
 
 private:
     template<typename FUNC>
@@ -48,17 +47,17 @@ private:
         return UnaryBooleanOperationExecutor::select<FUNC>(*params[0], selVector);
     }
 
-    static scalar_exec_func bindBinaryExecFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
+    static void bindBinaryExecFunction(common::ExpressionType expressionType,
+        const binder::expression_vector& children, scalar_exec_func& func);
 
-    static scalar_select_func bindBinarySelectFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
+    static void bindBinarySelectFunction(common::ExpressionType expressionType,
+        const binder::expression_vector& children, scalar_select_func& func);
 
-    static scalar_exec_func bindUnaryExecFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
+    static void bindUnaryExecFunction(common::ExpressionType expressionType,
+        const binder::expression_vector& children, scalar_exec_func& func);
 
-    static scalar_select_func bindUnarySelectFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
+    static void bindUnarySelectFunction(common::ExpressionType expressionType,
+        const binder::expression_vector& children, scalar_select_func& func);
 };
 
 } // namespace function

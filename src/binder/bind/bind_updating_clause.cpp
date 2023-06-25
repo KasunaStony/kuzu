@@ -21,7 +21,7 @@ std::unique_ptr<BoundUpdatingClause> Binder::bindUpdatingClause(
     case ClauseType::SET: {
         return bindSetClause(updatingClause);
     }
-    case ClauseType::DELETE: {
+    case ClauseType::DELETE_: {
         return bindDeleteClause(updatingClause);
     }
     default:
@@ -32,7 +32,7 @@ std::unique_ptr<BoundUpdatingClause> Binder::bindUpdatingClause(
 std::unique_ptr<BoundUpdatingClause> Binder::bindCreateClause(
     const UpdatingClause& updatingClause) {
     auto& createClause = (CreateClause&)updatingClause;
-    auto prevVariablesInScope = variablesInScope;
+    auto prevVariableScope = variableScope->copy();
     auto [queryGraphCollection, propertyCollection] =
         bindGraphPattern(createClause.getPatternElements());
     auto boundCreateClause = std::make_unique<BoundCreateClause>();
@@ -40,13 +40,13 @@ std::unique_ptr<BoundUpdatingClause> Binder::bindCreateClause(
         auto queryGraph = queryGraphCollection->getQueryGraph(i);
         for (auto j = 0u; j < queryGraph->getNumQueryNodes(); ++j) {
             auto node = queryGraph->getQueryNode(j);
-            if (!prevVariablesInScope.contains(node->toString())) {
+            if (!prevVariableScope->contains(node->toString())) {
                 boundCreateClause->addCreateNode(bindCreateNode(node, *propertyCollection));
             }
         }
         for (auto j = 0u; j < queryGraph->getNumQueryRels(); ++j) {
             auto rel = queryGraph->getQueryRel(j);
-            if (!prevVariablesInScope.contains(rel->toString())) {
+            if (!prevVariableScope->contains(rel->toString())) {
                 boundCreateClause->addCreateRel(bindCreateRel(rel, *propertyCollection));
             }
         }
@@ -72,7 +72,8 @@ std::unique_ptr<BoundCreateNode> Binder::bindCreateNode(
         }
         setItems.emplace_back(key, val);
     }
-    if (primaryKeyExpression == nullptr) {
+    if (nodeTableSchema->getPrimaryKey().dataType.getLogicalTypeID() != LogicalTypeID::SERIAL &&
+        primaryKeyExpression == nullptr) {
         throw BinderException("Create node " + node->toString() + " expects primary key " +
                               primaryKey.name + " as input.");
     }
@@ -113,12 +114,12 @@ std::unique_ptr<BoundUpdatingClause> Binder::bindSetClause(const UpdatingClause&
     for (auto i = 0u; i < setClause.getNumSetItems(); ++i) {
         auto setItem = setClause.getSetItem(i);
         auto nodeOrRel = expressionBinder.bindExpression(*setItem.first->getChild(0));
-        switch (nodeOrRel->dataType.typeID) {
-        case DataTypeID::NODE: {
+        switch (nodeOrRel->dataType.getLogicalTypeID()) {
+        case LogicalTypeID::NODE: {
             auto node = static_pointer_cast<NodeExpression>(nodeOrRel);
             boundSetClause->addSetNodeProperty(bindSetNodeProperty(node, setItem));
         } break;
-        case DataTypeID::REL: {
+        case LogicalTypeID::REL: {
             auto rel = static_pointer_cast<RelExpression>(nodeOrRel);
             boundSetClause->addSetRelProperty(bindSetRelProperty(rel, setItem));
         } break;
@@ -162,12 +163,12 @@ std::unique_ptr<BoundUpdatingClause> Binder::bindDeleteClause(
     auto boundDeleteClause = std::make_unique<BoundDeleteClause>();
     for (auto i = 0u; i < deleteClause.getNumExpressions(); ++i) {
         auto nodeOrRel = expressionBinder.bindExpression(*deleteClause.getExpression(i));
-        switch (nodeOrRel->dataType.typeID) {
-        case DataTypeID::NODE: {
+        switch (nodeOrRel->dataType.getLogicalTypeID()) {
+        case LogicalTypeID::NODE: {
             auto deleteNode = bindDeleteNode(static_pointer_cast<NodeExpression>(nodeOrRel));
             boundDeleteClause->addDeleteNode(std::move(deleteNode));
         } break;
-        case DataTypeID::REL: {
+        case LogicalTypeID::REL: {
             auto deleteRel = bindDeleteRel(static_pointer_cast<RelExpression>(nodeOrRel));
             boundDeleteClause->addDeleteRel(std::move(deleteRel));
         } break;

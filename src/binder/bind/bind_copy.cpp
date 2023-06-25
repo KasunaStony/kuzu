@@ -36,7 +36,7 @@ std::unique_ptr<BoundStatement> Binder::bindCopyClause(const Statement& statemen
                 tableSchema->tableName));
         }
     }
-    return make_unique<BoundCopy>(
+    return std::make_unique<BoundCopy>(
         CopyDescription(boundFilePaths, csvReaderConfig, actualFileType), tableID, tableName);
 }
 
@@ -57,24 +57,6 @@ std::vector<std::string> Binder::bindFilePaths(const std::vector<std::string>& f
     return boundFilePaths;
 }
 
-std::unordered_map<common::property_id_t, std::string> Binder::bindPropertyToNpyMap(
-    common::table_id_t tableID, const std::vector<std::string>& filePaths) {
-    auto catalogContent = catalog.getReadOnlyVersion();
-    auto tableSchema = catalogContent->getTableSchema(tableID);
-    if (tableSchema->properties.size() != filePaths.size()) {
-        throw BinderException(StringUtils::string_format(
-            "Number of npy files is not equal to number of properties in table {}.",
-            tableSchema->tableName));
-    }
-    std::unordered_map<common::property_id_t, std::string> propertyIDToNpyMap;
-    for (int i = 0; i < filePaths.size(); i++) {
-        auto& filePath = filePaths[i];
-        auto& propertyID = tableSchema->properties[i].propertyID;
-        propertyIDToNpyMap[propertyID] = filePath;
-    }
-    return propertyIDToNpyMap;
-}
-
 CSVReaderConfig Binder::bindParsingOptions(
     const std::unordered_map<std::string, std::unique_ptr<ParsedExpression>>* parsingOptions) {
     CSVReaderConfig csvReaderConfig;
@@ -86,15 +68,16 @@ CSVReaderConfig Binder::bindParsingOptions(
         auto boundCopyOptionExpression = expressionBinder.bindExpression(*copyOptionExpression);
         assert(boundCopyOptionExpression->expressionType = LITERAL);
         if (copyOptionName == "HEADER") {
-            if (boundCopyOptionExpression->dataType.typeID != BOOL) {
+            if (boundCopyOptionExpression->dataType.getLogicalTypeID() != LogicalTypeID::BOOL) {
                 throw BinderException(
                     "The value type of parsing csv option " + copyOptionName + " must be boolean.");
             }
             csvReaderConfig.hasHeader =
                 ((LiteralExpression&)(*boundCopyOptionExpression)).value->getValue<bool>();
-        } else if (boundCopyOptionExpression->dataType.typeID == STRING &&
+        } else if (boundCopyOptionExpression->dataType.getLogicalTypeID() ==
+                       LogicalTypeID::STRING &&
                    isValidStringParsingOption) {
-            if (boundCopyOptionExpression->dataType.typeID != STRING) {
+            if (boundCopyOptionExpression->dataType.getLogicalTypeID() != LogicalTypeID::STRING) {
                 throw BinderException(
                     "The value type of parsing csv option " + copyOptionName + " must be string.");
             }

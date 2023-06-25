@@ -42,15 +42,15 @@ class AggregateHashTable : public BaseHashTable {
 public:
     // Used by distinct aggregate hash table only.
     AggregateHashTable(storage::MemoryManager& memoryManager,
-        const std::vector<common::DataType>& keysDataTypes,
+        const std::vector<common::LogicalType>& keysDataTypes,
         const std::vector<std::unique_ptr<function::AggregateFunction>>& aggregateFunctions,
         uint64_t numEntriesToAllocate)
-        : AggregateHashTable(memoryManager, keysDataTypes, std::vector<common::DataType>(),
+        : AggregateHashTable(memoryManager, keysDataTypes, std::vector<common::LogicalType>(),
               aggregateFunctions, numEntriesToAllocate) {}
 
     AggregateHashTable(storage::MemoryManager& memoryManager,
-        std::vector<common::DataType> keysDataTypes,
-        std::vector<common::DataType> payloadsDataTypes,
+        std::vector<common::LogicalType> keysDataTypes,
+        std::vector<common::LogicalType> payloadsDataTypes,
         const std::vector<std::unique_ptr<function::AggregateFunction>>& aggregateFunctions,
         uint64_t numEntriesToAllocate);
 
@@ -179,9 +179,15 @@ private:
     void resizeHashTableIfNecessary(uint32_t maxNumDistinctHashKeys);
 
     template<typename type>
-    static bool compareEntryWithKeys(const uint8_t* keyValue, const uint8_t* entry);
+    static bool compareEntryWithKeys(const uint8_t* keyValue, const uint8_t* entry) {
+        uint8_t result;
+        kuzu::function::operation::Equals::operation(*(type*)keyValue, *(type*)entry, result,
+            nullptr /* leftVector */, nullptr /* rightVector */);
+        return result != 0;
+    }
 
-    static compare_function_t getCompareEntryWithKeysFunc(common::DataTypeID typeId);
+    static void getCompareEntryWithKeysFunc(
+        common::PhysicalTypeID physicalType, compare_function_t& func);
 
     void updateNullAggVectorState(
         const std::vector<common::ValueVector*>& groupByFlatHashKeyVectors,
@@ -218,8 +224,8 @@ private:
         common::ValueVector* aggVector, uint64_t multiplicity, uint32_t aggStateOffset);
 
 private:
-    std::vector<common::DataType> keyDataTypes;
-    std::vector<common::DataType> dependentKeyDataTypes;
+    std::vector<common::LogicalType> keyDataTypes;
+    std::vector<common::LogicalType> dependentKeyDataTypes;
     std::vector<std::unique_ptr<function::AggregateFunction>> aggregateFunctions;
 
     //! special handling of distinct aggregate
@@ -249,7 +255,7 @@ class AggregateHashTableUtils {
 public:
     static std::vector<std::unique_ptr<AggregateHashTable>> createDistinctHashTables(
         storage::MemoryManager& memoryManager,
-        const std::vector<common::DataType>& groupByKeyDataTypes,
+        const std::vector<common::LogicalType>& groupByKeyDataTypes,
         const std::vector<std::unique_ptr<function::AggregateFunction>>& aggregateFunctions);
 };
 

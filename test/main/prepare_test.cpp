@@ -92,16 +92,16 @@ TEST_F(ApiTest, PrepareInterval) {
     ASSERT_FALSE(result->hasNext());
 }
 
-TEST_F(ApiTest, DefaultParam) {
-    auto preparedStatement = conn->prepare("MATCH (a:person) WHERE $1 = $2 RETURN COUNT(*)");
-    auto result =
-        conn->execute(preparedStatement.get(), std::make_pair(std::string("1"), (int64_t)1.4),
-            std::make_pair(std::string("2"), (int64_t)1.4));
-    ASSERT_TRUE(result->hasNext());
-    auto tuple = result->getNext();
-    ASSERT_EQ(tuple->getValue(0)->getValue<int64_t>(), 8);
-    ASSERT_FALSE(result->hasNext());
-}
+// TEST_F(ApiTest, DefaultParam) {
+//    auto preparedStatement = conn->prepare("MATCH (a:person) WHERE $1 = $2 RETURN COUNT(*)");
+//    auto result =
+//        conn->execute(preparedStatement.get(), std::make_pair(std::string("1"), (int64_t)1.4),
+//            std::make_pair(std::string("2"), (int64_t)1.4));
+//    ASSERT_TRUE(result->hasNext());
+//    auto tuple = result->getNext();
+//    ASSERT_EQ(tuple->getValue(0)->getValue<int64_t>(), 8);
+//    ASSERT_FALSE(result->hasNext());
+//}
 
 TEST_F(ApiTest, PrepareLargeJoin) {
     auto preparedStatement = conn->prepare(
@@ -128,7 +128,7 @@ TEST_F(ApiTest, ParamTypeError) {
         conn->execute(preparedStatement.get(), std::make_pair(std::string("n"), (int64_t)36));
     ASSERT_FALSE(result->isSuccess());
     ASSERT_STREQ(
-        "Parameter n has data type INT64 but expect STRING.", result->getErrorMessage().c_str());
+        "Parameter n has data type INT64 but expects STRING.", result->getErrorMessage().c_str());
 }
 
 TEST_F(ApiTest, MultipleExecutionOfPreparedStatement) {

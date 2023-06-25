@@ -1,7 +1,6 @@
 #pragma once
 
 #include "binder/expression/expression.h"
-#include "common/vector/value_vector_utils.h"
 #include "expression_evaluator/base_evaluator.h"
 #include "processor/operator/physical_operator.h"
 #include "processor/result/result_set.h"
@@ -11,7 +10,7 @@ namespace processor {
 
 class Unwind : public PhysicalOperator {
 public:
-    Unwind(common::DataType outDataType, DataPos outDataPos,
+    Unwind(common::LogicalType outDataType, DataPos outDataPos,
         std::unique_ptr<evaluator::BaseExpressionEvaluator> expressionEvaluator,
         std::unique_ptr<PhysicalOperator> child, uint32_t id, const std::string& paramsString)
         : PhysicalOperator{PhysicalOperatorType::UNWIND, std::move(child), id, paramsString},
@@ -31,7 +30,7 @@ private:
     bool hasMoreToRead() const;
     void copyTuplesToOutVector(uint64_t startPos, uint64_t endPos) const;
 
-    common::DataType outDataType;
+    common::LogicalType outDataType;
     DataPos outDataPos;
 
     std::unique_ptr<evaluator::BaseExpressionEvaluator> expressionEvaluator;

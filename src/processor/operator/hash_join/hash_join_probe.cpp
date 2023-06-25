@@ -26,10 +26,11 @@ void HashJoinProbe::initLocalStateInternal(ResultSet* resultSet, ExecutionContex
     columnIdxsToReadFrom.resize(probeDataInfo.getNumPayloads());
     iota(
         columnIdxsToReadFrom.begin(), columnIdxsToReadFrom.end(), probeDataInfo.keysDataPos.size());
-    hashVector = std::make_unique<common::ValueVector>(common::INT64, context->memoryManager);
+    hashVector =
+        std::make_unique<common::ValueVector>(common::LogicalTypeID::INT64, context->memoryManager);
     if (keyVectors.size() > 1) {
-        tmpHashVector =
-            std::make_unique<common::ValueVector>(common::INT64, context->memoryManager);
+        tmpHashVector = std::make_unique<common::ValueVector>(
+            common::LogicalTypeID::INT64, context->memoryManager);
     }
 }
 
@@ -153,6 +154,7 @@ void HashJoinProbe::setVectorsToNull() {
 uint64_t HashJoinProbe::getLeftJoinResult() {
     if (getInnerJoinResult() == 0) {
         setVectorsToNull();
+        probeState->probedTuples[0] = nullptr;
     }
     return 1;
 }
@@ -168,6 +170,7 @@ uint64_t HashJoinProbe::getMarkJoinResult() {
             markValues[probeState->matchedSelVector->selectedPositions[i]] = true;
         }
     }
+    probeState->probedTuples[0] = nullptr;
     probeState->nextMatchedTupleIdx = probeState->matchedSelVector->selectedSize;
     return 1;
 }

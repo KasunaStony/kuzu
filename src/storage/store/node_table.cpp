@@ -13,13 +13,20 @@ NodeTable::NodeTable(NodesStatisticsAndDeletedIDs* nodesStatisticsAndDeletedIDs,
     initializeData(nodeTableSchema);
 }
 
-void NodeTable::initializeData(NodeTableSchema* nodeTableSchema) {
+std::unordered_map<common::property_id_t, std::unique_ptr<Column>> NodeTable::initializeColumns(
+    WAL* wal, kuzu::storage::BufferManager* bm, NodeTableSchema* nodeTableSchema) {
+    std::unordered_map<common::property_id_t, std::unique_ptr<Column>> propertyColumns;
     for (auto& property : nodeTableSchema->getAllNodeProperties()) {
         propertyColumns[property.propertyID] = ColumnFactory::getColumn(
             StorageUtils::getNodePropertyColumnStructureIDAndFName(wal->getDirectory(), property),
-            property.dataType, &bufferManager, wal);
+            property.dataType, bm, wal);
     }
-    if (nodeTableSchema->getPrimaryKey().dataType.typeID != SERIAL) {
+    return propertyColumns;
+}
+
+void NodeTable::initializeData(NodeTableSchema* nodeTableSchema) {
+    propertyColumns = initializeColumns(wal, &bufferManager, nodeTableSchema);
+    if (nodeTableSchema->getPrimaryKey().dataType.getLogicalTypeID() != LogicalTypeID::SERIAL) {
         pkIndex = std::make_unique<PrimaryKeyIndex>(
             StorageUtils::getNodeIndexIDAndFName(wal->getDirectory(), tableID),
             nodeTableSchema->getPrimaryKey().dataType, bufferManager, wal);
@@ -38,22 +45,28 @@ void NodeTable::scan(transaction::Transaction* transaction, ValueVector* inputID
     }
 }
 
-offset_t NodeTable::addNodeAndResetProperties(ValueVector* primaryKeyVector) {
+offset_t NodeTable::addNodeAndResetProperties() {
     auto nodeOffset = nodesStatisticsAndDeletedIDs->addNode(tableID);
+    for (auto& [_, column] : propertyColumns) {
+        if (column->dataType.getLogicalTypeID() != LogicalTypeID::SERIAL) {
+            column->setNull(nodeOffset);
+        }
+    }
+    return nodeOffset;
+}
+
+offset_t NodeTable::addNodeAndResetPropertiesWithPK(common::ValueVector* primaryKeyVector) {
+    auto nodeOffset = addNodeAndResetProperties();
     assert(primaryKeyVector->state->selVector->selectedSize == 1);
     auto pkValPos = primaryKeyVector->state->selVector->selectedPositions[0];
     if (primaryKeyVector->isNull(pkValPos)) {
         throw RuntimeException("Null is not allowed as a primary key value.");
     }
-    // TODO(Guodong): Handle SERIAL.
     if (!pkIndex->insert(primaryKeyVector, pkValPos, nodeOffset)) {
-        std::string pkStr = primaryKeyVector->dataType.typeID == INT64 ?
+        std::string pkStr = primaryKeyVector->dataType.getLogicalTypeID() == LogicalTypeID::INT64 ?
                                 std::to_string(primaryKeyVector->getValue<int64_t>(pkValPos)) :
                                 primaryKeyVector->getValue<ku_string_t>(pkValPos).getAsString();
         throw RuntimeException(Exception::getExistedPKExceptionMsg(pkStr));
-    }
-    for (auto& [_, column] : propertyColumns) {
-        column->setNodeOffsetToNull(nodeOffset);
     }
     return nodeOffset;
 }
@@ -72,9 +85,15 @@ void NodeTable::deleteNodes(ValueVector* nodeIDVector, ValueVector* primaryKeyVe
     }
 }
 
-void NodeTable::prepareCommitOrRollbackIfNecessary(bool isCommit) {
+void NodeTable::prepareCommit() {
     if (pkIndex) {
-        pkIndex->prepareCommitOrRollbackIfNecessary(isCommit);
+        pkIndex->prepareCommit();
+    }
+}
+
+void NodeTable::prepareRollback() {
+    if (pkIndex) {
+        pkIndex->prepareRollback();
     }
 }
 

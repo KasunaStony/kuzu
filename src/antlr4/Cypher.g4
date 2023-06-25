@@ -14,13 +14,18 @@ grammar Cypher;
 }
 
 oC_Cypher
-    : SP ? oC_AnyCypherOption? SP? ( oC_Statement | kU_DDL | kU_CopyNPY | kU_CopyCSV ) ( SP? ';' )? SP? EOF ;
+    : SP ? oC_AnyCypherOption? SP? ( oC_Statement ) ( SP? ';' )? SP? EOF ;
 
 kU_CopyCSV
     : COPY SP oC_SchemaName SP FROM SP kU_FilePaths ( SP? '(' SP? kU_ParsingOptions SP? ')' )? ;
 
 kU_CopyNPY
     : COPY SP oC_SchemaName SP FROM SP '(' SP? StringLiteral ( SP? ',' SP? StringLiteral )* ')' SP BY SP COLUMN ;
+
+kU_Call
+    : CALL SP oC_SymbolicName SP? '=' SP? oC_Literal ;
+
+CALL : ( 'C' | 'c' ) ( 'A' | 'a' ) ( 'L' | 'l' ) ( 'L' | 'l' ) ;
 
 kU_FilePaths
     : '[' SP? StringLiteral ( SP? ',' SP? StringLiteral )* ']'
@@ -131,7 +136,11 @@ oC_Profile
 PROFILE : ( 'P' | 'p' ) ( 'R' | 'r' ) ( 'O' | 'o' ) ( 'F' | 'f' ) ( 'I' | 'i' ) ( 'L' | 'l' ) ( 'E' | 'e' ) ;
 
 oC_Statement
-    : oC_Query ;
+    : oC_Query
+        | kU_DDL
+        | kU_CopyNPY
+        | kU_CopyCSV
+        | kU_Call  ;
 
 oC_Query
     : oC_RegularQuery ;
@@ -283,9 +292,7 @@ oC_PatternElement
         ;
 
 oC_NodePattern
-    : '(' SP? ( oC_Variable SP? )? ( oC_NodeLabels SP? )? ( kU_Properties SP? )? ')'
-        | SP? ( oC_Variable SP? )? ( oC_NodeLabels SP? )? ( kU_Properties SP? )? { notifyNodePatternWithoutParentheses($oC_Variable.text, $oC_Variable.start); }
-        ;
+    : '(' SP? ( oC_Variable SP? )? ( oC_NodeLabels SP? )? ( kU_Properties SP? )? ')' ;
 
 oC_PatternElementChain
     : oC_RelationshipPattern SP? oC_NodePattern ;
@@ -293,6 +300,7 @@ oC_PatternElementChain
 oC_RelationshipPattern
     : ( oC_LeftArrowHead SP? oC_Dash SP? oC_RelationshipDetail? SP? oC_Dash )
         | ( oC_Dash SP? oC_RelationshipDetail? SP? oC_Dash SP? oC_RightArrowHead )
+        | ( oC_Dash SP? oC_RelationshipDetail? SP? oC_Dash )
         ;
 
 oC_RelationshipDetail
@@ -314,7 +322,7 @@ oC_NodeLabel
     : ':' SP? oC_LabelName ;
 
 oC_RangeLiteral
-    :  '*' SP? SHORTEST? SP? oC_IntegerLiteral SP? '..' SP? oC_IntegerLiteral ;
+    :  '*' SP? ( SHORTEST | ALL SP SHORTEST )? SP? oC_IntegerLiteral SP? '..' SP? oC_IntegerLiteral ;
 
 SHORTEST : ( 'S' | 's' ) ( 'H' | 'h' ) ( 'O' | 'o' ) ( 'R' | 'r' ) ( 'T' | 't' ) ( 'E' | 'e' ) ( 'S' | 's' ) ( 'T' | 't' ) ;
 
@@ -458,17 +466,20 @@ kU_StructLiteral
     :  '{' SP? kU_StructField SP? ( ',' SP? kU_StructField SP? )* '}' ;
 
 kU_StructField
-    :   oC_SymbolicName SP? ':' SP? oC_Expression ;
+    :   ( oC_SymbolicName | StringLiteral ) SP? ':' SP? oC_Expression ;
 
 oC_ParenthesizedExpression
     : '(' SP? oC_Expression SP? ')' ;
 
 oC_FunctionInvocation
     : oC_FunctionName SP? '(' SP? '*' SP? ')'
-        | oC_FunctionName SP? '(' SP? ( DISTINCT SP? )? ( oC_Expression SP? ( ',' SP? oC_Expression SP? )* )? ')' ;
+        | oC_FunctionName SP? '(' SP? ( DISTINCT SP? )? ( kU_FunctionParameter SP? ( ',' SP? kU_FunctionParameter SP? )* )? ')' ;
 
 oC_FunctionName
     : oC_SymbolicName ;
+
+kU_FunctionParameter
+    : ( oC_SymbolicName SP? ':' '=' SP? )? oC_Expression ;
 
 oC_ExistentialSubquery
     :  EXISTS SP? '{' SP? MATCH SP? oC_Pattern ( SP? oC_Where )? SP? '}' ;

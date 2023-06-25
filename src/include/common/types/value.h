@@ -21,12 +21,12 @@ public:
      * @param dataType the type of the NULL value.
      * @return a NULL value of the given type.
      */
-    KUZU_API static Value createNullValue(DataType dataType);
+    KUZU_API static Value createNullValue(LogicalType dataType);
     /**
      * @param dataType the type of the non-NULL value.
      * @return a default non-NULL value of the given type.
      */
-    KUZU_API static Value createDefaultValue(const DataType& dataType);
+    KUZU_API static Value createDefaultValue(const LogicalType& dataType);
     /**
      * @param val_ the boolean value to set.
      * @return a Value with BOOL type and val_ value.
@@ -53,13 +53,18 @@ public:
      */
     KUZU_API explicit Value(double val_);
     /**
+     * @param val_ the float value to set.
+     * @return a Value with FLOAT type and val_ value.
+     */
+    KUZU_API explicit Value(float_t val_);
+    /**
      * @param val_ the date value to set.
      * @return a Value with DATE type and val_ value.
      */
     KUZU_API explicit Value(date_t val_);
     /**
      * @param val_ the timestamp value to set.
-     * @return a Value with timestamp type and val_ value.
+     * @return a Value with TIMESTAMP type and val_ value.
      */
     KUZU_API explicit Value(timestamp_t val_);
     /**
@@ -79,19 +84,14 @@ public:
     KUZU_API explicit Value(const char* val_);
     /**
      * @param val_ the string value to set.
-     * @return a Value with STRING type and val_ value.
+     * @return a Value with type and val_ value.
      */
-    KUZU_API explicit Value(const std::string& val_);
+    KUZU_API explicit Value(LogicalType type, const std::string& val_);
     /**
      * @param vals the list value to set.
      * @return a Value with dataType type and vals value.
      */
-    KUZU_API explicit Value(DataType dataType, std::vector<std::unique_ptr<Value>> vals);
-    /**
-     * @param val_ the string value to set.
-     * @return a Value with STRING type and val_ value.
-     */
-    KUZU_API explicit Value(float_t val_);
+    KUZU_API explicit Value(LogicalType dataType, std::vector<std::unique_ptr<Value>> vals);
     /**
      * @param val_ the node value to set.
      * @return a Value with NODE type and val_ value.
@@ -106,7 +106,7 @@ public:
      * @param val_ the value to set.
      * @return a Value with dataType type and val_ value.
      */
-    KUZU_API explicit Value(DataType dataType, const uint8_t* val_);
+    KUZU_API explicit Value(LogicalType dataType, const uint8_t* val_);
     /**
      * @param other the value to copy from.
      * @return a Value with the same value as other.
@@ -116,11 +116,11 @@ public:
      * @brief Sets the data type of the Value.
      * @param dataType_ the data type to set to.
      */
-    KUZU_API void setDataType(const DataType& dataType_);
+    KUZU_API void setDataType(const LogicalType& dataType_);
     /**
      * @return the dataType of the value.
      */
-    KUZU_API DataType getDataType() const;
+    KUZU_API LogicalType getDataType() const;
     /**
      * @brief Sets the null flag of the Value.
      * @param flag null value flag to set.
@@ -182,7 +182,7 @@ public:
 
 private:
     Value();
-    explicit Value(DataType dataType);
+    explicit Value(LogicalType dataType);
 
     template<typename T>
     static inline void putValuesIntoVector(std::vector<std::unique_ptr<Value>>& fixedListResultVal,
@@ -193,12 +193,14 @@ private:
         }
     }
 
-    std::vector<std::unique_ptr<Value>> convertKUVarListToVector(ku_list_t& list) const;
+    std::vector<std::unique_ptr<Value>> convertKUVarListToVector(
+        ku_list_t& list, const LogicalType& childType) const;
     std::vector<std::unique_ptr<Value>> convertKUFixedListToVector(const uint8_t* fixedList) const;
     std::vector<std::unique_ptr<Value>> convertKUStructToVector(const uint8_t* kuStruct) const;
+    std::vector<std::unique_ptr<Value>> convertKUUnionToVector(const uint8_t* kuUnion) const;
 
 public:
-    DataType dataType;
+    LogicalType dataType;
     bool isNull_;
 
     union Val {
@@ -209,13 +211,12 @@ public:
         int16_t int16Val;
         double doubleVal;
         float floatVal;
-        date_t dateVal;
-        timestamp_t timestampVal;
         interval_t intervalVal;
         internalID_t internalIDVal;
     } val;
     std::string strVal;
     std::vector<std::unique_ptr<Value>> nestedTypeVal;
+    // TODO(Ziyi): remove these two fields once we implemented node/rel using struct.
     std::unique_ptr<NodeVal> nodeVal;
     std::unique_ptr<RelVal> relVal;
 };
@@ -328,7 +329,7 @@ public:
     /**
      * @return the name of the RelVal.
      */
-    KUZU_API std::string getLabelName();
+    KUZU_API std::string getLabelName() const;
     /**
      * @return the value of the RelVal in string format.
      */
@@ -350,7 +351,7 @@ private:
  */
 KUZU_API template<>
 inline bool Value::getValue() const {
-    assert(dataType.getTypeID() == BOOL);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::BOOL);
     return val.booleanVal;
 }
 
@@ -359,7 +360,7 @@ inline bool Value::getValue() const {
  */
 KUZU_API template<>
 inline int16_t Value::getValue() const {
-    assert(dataType.getTypeID() == INT16);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INT16);
     return val.int16Val;
 }
 
@@ -368,7 +369,7 @@ inline int16_t Value::getValue() const {
  */
 KUZU_API template<>
 inline int32_t Value::getValue() const {
-    assert(dataType.getTypeID() == INT32);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INT32);
     return val.int32Val;
 }
 
@@ -377,7 +378,7 @@ inline int32_t Value::getValue() const {
  */
 KUZU_API template<>
 inline int64_t Value::getValue() const {
-    assert(dataType.getTypeID() == INT64);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INT64);
     return val.int64Val;
 }
 
@@ -386,7 +387,7 @@ inline int64_t Value::getValue() const {
  */
 KUZU_API template<>
 inline float Value::getValue() const {
-    assert(dataType.getTypeID() == FLOAT);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::FLOAT);
     return val.floatVal;
 }
 
@@ -395,7 +396,7 @@ inline float Value::getValue() const {
  */
 KUZU_API template<>
 inline double Value::getValue() const {
-    assert(dataType.getTypeID() == DOUBLE);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::DOUBLE);
     return val.doubleVal;
 }
 
@@ -404,8 +405,8 @@ inline double Value::getValue() const {
  */
 KUZU_API template<>
 inline date_t Value::getValue() const {
-    assert(dataType.getTypeID() == DATE);
-    return val.dateVal;
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::DATE);
+    return date_t{val.int32Val};
 }
 
 /**
@@ -413,8 +414,8 @@ inline date_t Value::getValue() const {
  */
 KUZU_API template<>
 inline timestamp_t Value::getValue() const {
-    assert(dataType.getTypeID() == TIMESTAMP);
-    return val.timestampVal;
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::TIMESTAMP);
+    return timestamp_t{val.int64Val};
 }
 
 /**
@@ -422,7 +423,7 @@ inline timestamp_t Value::getValue() const {
  */
 KUZU_API template<>
 inline interval_t Value::getValue() const {
-    assert(dataType.getTypeID() == INTERVAL);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INTERVAL);
     return val.intervalVal;
 }
 
@@ -431,7 +432,7 @@ inline interval_t Value::getValue() const {
  */
 KUZU_API template<>
 inline internalID_t Value::getValue() const {
-    assert(dataType.getTypeID() == INTERNAL_ID);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INTERNAL_ID);
     return val.internalIDVal;
 }
 
@@ -440,7 +441,7 @@ inline internalID_t Value::getValue() const {
  */
 KUZU_API template<>
 inline std::string Value::getValue() const {
-    assert(dataType.getTypeID() == STRING);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::STRING);
     return strVal;
 }
 
@@ -449,7 +450,7 @@ inline std::string Value::getValue() const {
  */
 KUZU_API template<>
 inline NodeVal Value::getValue() const {
-    assert(dataType.getTypeID() == NODE);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::NODE);
     return *nodeVal;
 }
 
@@ -458,7 +459,7 @@ inline NodeVal Value::getValue() const {
  */
 KUZU_API template<>
 inline RelVal Value::getValue() const {
-    assert(dataType.getTypeID() == REL);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::REL);
     return *relVal;
 }
 
@@ -467,7 +468,7 @@ inline RelVal Value::getValue() const {
  */
 KUZU_API template<>
 inline bool& Value::getValueReference() {
-    assert(dataType.getTypeID() == BOOL);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::BOOL);
     return val.booleanVal;
 }
 
@@ -476,7 +477,7 @@ inline bool& Value::getValueReference() {
  */
 KUZU_API template<>
 inline int16_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == INT16);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INT16);
     return val.int16Val;
 }
 
@@ -485,7 +486,7 @@ inline int16_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline int32_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == INT32);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INT32);
     return val.int32Val;
 }
 
@@ -494,7 +495,7 @@ inline int32_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline int64_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == INT64);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INT64);
     return val.int64Val;
 }
 
@@ -503,7 +504,7 @@ inline int64_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline float_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == FLOAT);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::FLOAT);
     return val.floatVal;
 }
 
@@ -512,7 +513,7 @@ inline float_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline double_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == DOUBLE);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::DOUBLE);
     return val.doubleVal;
 }
 
@@ -521,8 +522,8 @@ inline double_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline date_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == DATE);
-    return val.dateVal;
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::DATE);
+    return *reinterpret_cast<date_t*>(&val.int32Val);
 }
 
 /**
@@ -530,8 +531,8 @@ inline date_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline timestamp_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == TIMESTAMP);
-    return val.timestampVal;
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::TIMESTAMP);
+    return *reinterpret_cast<timestamp_t*>(&val.int64Val);
 }
 
 /**
@@ -539,7 +540,7 @@ inline timestamp_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline interval_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == INTERVAL);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INTERVAL);
     return val.intervalVal;
 }
 
@@ -548,7 +549,7 @@ inline interval_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline nodeID_t& Value::getValueReference() {
-    assert(dataType.getTypeID() == INTERNAL_ID);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::INTERNAL_ID);
     return val.internalIDVal;
 }
 
@@ -557,7 +558,7 @@ inline nodeID_t& Value::getValueReference() {
  */
 KUZU_API template<>
 inline std::string& Value::getValueReference() {
-    assert(dataType.getTypeID() == STRING);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::STRING);
     return strVal;
 }
 
@@ -566,7 +567,7 @@ inline std::string& Value::getValueReference() {
  */
 KUZU_API template<>
 inline NodeVal& Value::getValueReference() {
-    assert(dataType.getTypeID() == NODE);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::NODE);
     return *nodeVal;
 }
 
@@ -575,7 +576,7 @@ inline NodeVal& Value::getValueReference() {
  */
 KUZU_API template<>
 inline RelVal& Value::getValueReference() {
-    assert(dataType.getTypeID() == REL);
+    assert(dataType.getLogicalTypeID() == LogicalTypeID::REL);
     return *relVal;
 }
 
@@ -662,20 +663,11 @@ inline Value Value::createValue(nodeID_t val) {
 
 /**
  * @param val the string value
- * @return a Value with STRING type and val value.
+ * @return a Value with type and val value.
  */
 KUZU_API template<>
 inline Value Value::createValue(std::string val) {
-    return Value(val);
-}
-
-/**
- * @param val the string value
- * @return a Value with STRING type and val value.
- */
-KUZU_API template<>
-inline Value Value::createValue(const std::string& val) {
-    return Value(val);
+    return Value(LogicalType{LogicalTypeID::STRING}, val);
 }
 
 /**
@@ -684,7 +676,7 @@ inline Value Value::createValue(const std::string& val) {
  */
 KUZU_API template<>
 inline Value Value::createValue(const char* value) {
-    return Value(std::string(value));
+    return Value(LogicalType{LogicalTypeID::STRING}, std::string(value));
 }
 
 } // namespace common

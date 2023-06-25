@@ -19,8 +19,14 @@ constexpr uint64_t THREAD_SLEEP_TIME_WHEN_WAITING_IN_MICROS = 500;
 
 constexpr uint64_t DEFAULT_CHECKPOINT_WAIT_TIMEOUT_FOR_TRANSACTIONS_TO_LEAVE_IN_MICROS = 5000000;
 
-const std::string INTERNAL_ID_SUFFIX = "_id";
-const std::string INTERNAL_LENGTH_SUFFIX = "_length";
+struct InternalKeyword {
+    static constexpr char ANONYMOUS[] = "";
+    static constexpr char ID[] = "_id";
+    static constexpr char LENGTH[] = "_length";
+    static constexpr char NODES[] = "_nodes";
+    static constexpr char RELS[] = "_rels";
+    static constexpr char TAG[] = "_tag";
+};
 
 enum PageSizeClass : uint8_t {
     PAGE_4KB = 0,
@@ -84,7 +90,7 @@ struct ListsMetadataConstants {
     // PAGE_LIST_GROUP_SIZE + 1 each and chained together. In each piece, there are
     // PAGE_LIST_GROUP_SIZE elements of that list and the offset to the next pageListGroups in the
     // blob that contains all pageListGroups of all lists.
-    static constexpr uint32_t PAGE_LIST_GROUP_SIZE = 3;
+    static constexpr uint32_t PAGE_LIST_GROUP_SIZE = 20;
     static constexpr uint32_t PAGE_LIST_GROUP_WITH_NEXT_PTR_SIZE = PAGE_LIST_GROUP_SIZE + 1;
 };
 
@@ -137,7 +143,7 @@ struct PlannerKnobs {
     static constexpr uint64_t BUILD_PENALTY = 2;
     // Avoid doing probe to build SIP if we have to accumulate a probe side that is much bigger than
     // build side. Also avoid doing build to probe SIP if probe side is not much bigger than build.
-    static constexpr uint64_t ACC_HJ_PROBE_BUILD_RATIO = 5;
+    static constexpr uint64_t SIP_RATIO = 5;
 };
 
 struct ClientContextConstants {

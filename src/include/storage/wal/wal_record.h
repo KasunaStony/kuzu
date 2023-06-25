@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/rel_direction.h"
 #include "common/types/types_include.h"
 #include "common/utils.h"
 
@@ -25,11 +26,11 @@ enum class ColumnType : uint8_t {
 
 struct RelNodeTableAndDir {
     common::table_id_t relTableID;
-    common::RelDirection dir;
+    common::RelDataDirection dir;
 
     RelNodeTableAndDir() = default;
 
-    RelNodeTableAndDir(common::table_id_t relTableID, common::RelDirection dir)
+    RelNodeTableAndDir(common::table_id_t relTableID, common::RelDataDirection dir)
         : relTableID{relTableID}, dir{dir} {}
 
     inline bool operator==(const RelNodeTableAndDir& rhs) const {
@@ -202,6 +203,7 @@ std::string storageStructureTypeToString(StorageStructureType storageStructureTy
 struct StorageStructureID {
     StorageStructureType storageStructureType;
     bool isOverflow;
+    bool isNullBits;
     union {
         ColumnFileID columnFileID;
         ListFileID listFileID;
@@ -231,19 +233,19 @@ struct StorageStructureID {
     static StorageStructureID newNodePropertyColumnID(
         common::table_id_t tableID, common::property_id_t propertyID);
 
-    static StorageStructureID newRelPropertyColumnID(
-        common::table_id_t relTableID, common::RelDirection dir, common::property_id_t propertyID);
+    static StorageStructureID newRelPropertyColumnID(common::table_id_t relTableID,
+        common::RelDataDirection dir, common::property_id_t propertyID);
 
     static StorageStructureID newAdjColumnID(
-        common::table_id_t relTableID, common::RelDirection dir);
+        common::table_id_t relTableID, common::RelDataDirection dir);
 
     static StorageStructureID newNodeIndexID(common::table_id_t tableID);
 
     static StorageStructureID newAdjListsID(
-        common::table_id_t relTableID, common::RelDirection dir, ListFileType listFileType);
+        common::table_id_t relTableID, common::RelDataDirection dir, ListFileType listFileType);
 
     static StorageStructureID newRelPropertyListsID(common::table_id_t relTableID,
-        common::RelDirection dir, common::property_id_t propertyID, ListFileType listFileType);
+        common::RelDataDirection dir, common::property_id_t propertyID, ListFileType listFileType);
 };
 
 enum class WALRecordType : uint8_t {
@@ -355,6 +357,7 @@ struct CopyRelRecord {
 };
 
 struct TableStatisticsRecord {
+    // TODO(Guodong): Better to replace the bool with an enum.
     bool isNodeTable;
 
     TableStatisticsRecord() = default;

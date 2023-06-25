@@ -20,12 +20,22 @@ jobs:
         run: |
           pip install torch~=1.13 --extra-index-url https://download.pytorch.org/whl/cpu &&\
           pip install --user -r tools/python_api/requirements_dev.txt -f https://data.pyg.org/whl/torch-1.13.0+cpu.html
+      
+      - name: Ensure Node.js dependencies
+        run: npm install --include=dev
+        working-directory: tools/nodejs_api
 
       - name: Test with coverage
         run: CC=gcc CXX=g++ make lcov NUM_THREADS=32
 
       - name: Python test
-        run: CC=clang-14 CXX=clang++-14 make pytest NUM_THREADS=32
+        run: CC=gcc CXX=g++ make pytest NUM_THREADS=32
+      
+      - name: Node.js test
+        run: CC=gcc CXX=g++ make nodejstest NUM_THREADS=32
+
+      - name: Rust test
+        run: CC=gcc CXX=g++ make rusttest NUM_THREADS=32
 
       - name: Generate coverage report
         run: |
@@ -36,6 +46,7 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           file: cover.info
+          functionalities: 'search'
 
   gcc-build-test-with-asan:
     name: gcc build & test with asan
@@ -49,19 +60,23 @@ jobs:
           pip install torch~=1.13 --extra-index-url https://download.pytorch.org/whl/cpu &&\
           pip install --user -r tools/python_api/requirements_dev.txt -f https://data.pyg.org/whl/torch-1.13.0+cpu.html
 
+      - name: Ensure Node.js dependencies
+        run: npm install --include=dev
+        working-directory: tools/nodejs_api
+
       - name: Build debug
         run: CC=gcc CXX=g++ make alldebug NUM_THREADS=32
 
       - name: Run test with ASan
-        run: ctest
+        run: ctest --output-on-failure -j 10
         env:
           LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libasan.so.6"
           ASAN_OPTIONS: "detect_leaks=1:log_path=/tmp/asan.log"
         working-directory: ./build/debug/test
         continue-on-error: true
 
-      - name: Display ASan log
-        run: cat /tmp/asan.log* || true
+      - name: Report ASan log
+        run: ls /tmp/asan.log* 1>/dev/null 2>&1 && (cat /tmp/asan.log*; exit 1) || exit 0
         shell: bash
 
       - name: Clean up ASan log
@@ -79,6 +94,10 @@ jobs:
           pip install torch~=1.13 --extra-index-url https://download.pytorch.org/whl/cpu &&\
           pip install --user -r tools/python_api/requirements_dev.txt -f https://data.pyg.org/whl/torch-1.13.0+cpu.html
 
+      - name: Ensure Node.js dependencies
+        run: npm install --include=dev
+        working-directory: tools/nodejs_api
+
       - name: Build
         run: CC=clang-14 CXX=clang++-14 make release NUM_THREADS=32
 
@@ -87,6 +106,22 @@ jobs:
 
       - name: Python test
         run: CC=clang-14 CXX=clang++-14 make pytest NUM_THREADS=32
+      
+      - name: Node.js test
+        run: CC=clang-14 CXX=clang++-14 make nodejstest NUM_THREADS=32
+
+  msvc-build-test:
+    name: msvc build & test
+    needs: [clang-formatting-check]
+    runs-on: self-hosted-windows
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build and test
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+          make test NUM_THREADS=18
 
   clang-formatting-check:
     name: clang-format check
@@ -100,6 +135,16 @@ jobs:
       - name: Check test format
         run: python3 scripts/run-clang-format.py --clang-format-executable /usr/bin/clang-format-11 -r test/
 
+  rustfmt-check:
+    name: rustfmt check
+    runs-on: kuzu-self-hosted-testing
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Check api format
+        working-directory: tools/rust_api
+        run: cargo fmt --check
+
   benchmark:
     name: benchmark
     needs: [gcc-build-test, clang-build-test]
@@ -111,6 +156,10 @@ jobs:
         run: |
           pip install torch~=1.13 --extra-index-url https://download.pytorch.org/whl/cpu &&\
           pip install --user -r tools/python_api/requirements_dev.txt -f https://data.pyg.org/whl/torch-1.13.0+cpu.html
+      
+      - name: Ensure Node.js dependencies
+        run: npm install
+        working-directory: tools/nodejs_api
 
       - name: Build
         run: make benchmark NUM_THREADS=30

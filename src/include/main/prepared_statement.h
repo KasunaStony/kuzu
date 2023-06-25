@@ -14,6 +14,7 @@ namespace main {
 class PreparedStatement {
     friend class Connection;
     friend class testing::TestHelper;
+    friend class testing::TestRunner;
     friend class testing::TinySnbDDLTest;
     friend class testing::TinySnbCopyCSVTransactionTest;
 
@@ -38,6 +39,10 @@ public:
     KUZU_API bool isReadOnly() const;
 
     std::vector<std::shared_ptr<binder::Expression>> getExpressionsToCollect();
+
+    inline std::unordered_map<std::string, std::shared_ptr<common::Value>> getParameterMap() {
+        return parameterMap;
+    }
 
 private:
     common::StatementType statementType;

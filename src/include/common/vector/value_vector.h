@@ -18,12 +18,13 @@ class ValueVector {
     friend class ListAuxiliaryBuffer;
     friend class StructVector;
     friend class StringVector;
+    friend class ArrowColumnVector;
 
 public:
-    explicit ValueVector(DataType dataType, storage::MemoryManager* memoryManager = nullptr);
-    explicit ValueVector(DataTypeID dataTypeID, storage::MemoryManager* memoryManager = nullptr)
-        : ValueVector(DataType(dataTypeID), memoryManager) {
-        assert(dataTypeID != VAR_LIST);
+    explicit ValueVector(LogicalType dataType, storage::MemoryManager* memoryManager = nullptr);
+    explicit ValueVector(LogicalTypeID dataTypeID, storage::MemoryManager* memoryManager = nullptr)
+        : ValueVector(LogicalType(dataTypeID), memoryManager) {
+        assert(dataTypeID != LogicalTypeID::VAR_LIST);
     }
 
     ~ValueVector() = default;
@@ -48,28 +49,37 @@ public:
     inline uint32_t getNumBytesPerValue() const { return numBytesPerValue; }
 
     template<typename T>
-    inline T getValue(uint32_t pos) const {
+    inline T& getValue(uint32_t pos) const {
         return ((T*)valueBuffer.get())[pos];
     }
     template<typename T>
     void setValue(uint32_t pos, T val);
+    // copyFromRowData assumes rowData is non-NULL.
+    void copyFromRowData(uint32_t pos, const uint8_t* rowData);
+    // copyFromVectorData assumes srcVectorData is non-NULL.
+    void copyToRowData(
+        uint32_t pos, uint8_t* rowData, InMemOverflowBuffer* rowOverflowBuffer) const;
+    void copyFromVectorData(
+        uint8_t* dstData, const ValueVector* srcVector, const uint8_t* srcVectorData);
 
     inline uint8_t* getData() const { return valueBuffer.get(); }
 
     inline offset_t readNodeOffset(uint32_t pos) const {
-        assert(dataType.typeID == INTERNAL_ID);
+        assert(dataType.getLogicalTypeID() == LogicalTypeID::INTERNAL_ID);
         return getValue<nodeID_t>(pos).offset;
     }
 
     inline void setSequential() { _isSequential = true; }
     inline bool isSequential() const { return _isSequential; }
 
+    void resetAuxiliaryBuffer();
+
 private:
-    void setNumBytesPerValue();
+    uint32_t getDataTypeSize(const LogicalType& type);
     void initializeValueBuffer();
 
 public:
-    DataType dataType;
+    LogicalType dataType;
     std::shared_ptr<DataChunkState> state;
 
 private:
@@ -83,77 +93,121 @@ private:
 class StringVector {
 public:
     static inline InMemOverflowBuffer* getInMemOverflowBuffer(ValueVector* vector) {
-        return vector->dataType.typeID == STRING ?
-                   reinterpret_cast<StringAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
-                       ->getOverflowBuffer() :
-                   nullptr;
+        assert(vector->dataType.getPhysicalType() == PhysicalTypeID::STRING);
+        return reinterpret_cast<StringAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
+            ->getOverflowBuffer();
     }
 
-    static inline void resetOverflowBuffer(ValueVector* vector) {
-        if (vector->dataType.typeID == STRING) {
-            reinterpret_cast<StringAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
-                ->resetOverflowBuffer();
-        }
-    }
-
-    static inline void addString(
-        common::ValueVector* vector, uint32_t pos, char* value, uint64_t len) {
-        reinterpret_cast<StringAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
-            ->addString(vector, pos, value, len);
-    }
+    static void addString(ValueVector* vector, uint32_t vectorPos, ku_string_t& srcStr);
+    static void addString(
+        ValueVector* vector, uint32_t vectorPos, const char* srcStr, uint64_t length);
+    static void addString(ValueVector* vector, ku_string_t& dstStr, ku_string_t& srcStr);
+    static void addString(
+        ValueVector* vector, ku_string_t& dstStr, const char* srcStr, uint64_t length);
+    static void copyToRowData(const ValueVector* vector, uint32_t pos, uint8_t* rowData,
+        InMemOverflowBuffer* rowOverflowBuffer);
 };
 
 class ListVector {
 public:
     static inline ValueVector* getDataVector(const ValueVector* vector) {
-        assert(vector->dataType.typeID == VAR_LIST);
+        assert(vector->dataType.getPhysicalType() == PhysicalTypeID::VAR_LIST);
         return reinterpret_cast<ListAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
             ->getDataVector();
     }
+
+    static inline uint64_t getDataVectorSize(const ValueVector* vector) {
+        assert(vector->dataType.getPhysicalType() == PhysicalTypeID::VAR_LIST);
+        return reinterpret_cast<ListAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())->getSize();
+    }
+
     static inline uint8_t* getListValues(const ValueVector* vector, const list_entry_t& listEntry) {
-        assert(vector->dataType.typeID == VAR_LIST);
+        assert(vector->dataType.getPhysicalType() == PhysicalTypeID::VAR_LIST);
         auto dataVector = getDataVector(vector);
         return dataVector->getData() + dataVector->getNumBytesPerValue() * listEntry.offset;
     }
-    static inline uint8_t* getListValuesWithOffset(const ValueVector* vector,
-        const list_entry_t& listEntry, common::offset_t elementOffsetInList) {
-        assert(vector->dataType.typeID == VAR_LIST);
+    static inline uint8_t* getListValuesWithOffset(
+        const ValueVector* vector, const list_entry_t& listEntry, offset_t elementOffsetInList) {
+        assert(vector->dataType.getPhysicalType() == PhysicalTypeID::VAR_LIST);
         return getListValues(vector, listEntry) +
                elementOffsetInList * getDataVector(vector)->getNumBytesPerValue();
     }
     static inline list_entry_t addList(ValueVector* vector, uint64_t listSize) {
-        assert(vector->dataType.typeID == VAR_LIST);
+        assert(vector->dataType.getPhysicalType() == PhysicalTypeID::VAR_LIST);
         return reinterpret_cast<ListAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
             ->addList(listSize);
     }
+
+    static void copyFromRowData(ValueVector* vector, uint32_t pos, const uint8_t* rowData);
+    static void copyToRowData(const ValueVector* vector, uint32_t pos, uint8_t* rowData,
+        InMemOverflowBuffer* rowOverflowBuffer);
+    static void copyFromVectorData(ValueVector* dstVector, uint8_t* dstData,
+        const ValueVector* srcVector, const uint8_t* srcData);
 };
 
 class StructVector {
 public:
-    static inline const std::vector<std::shared_ptr<ValueVector>>& getChildrenVectors(
+    static inline const std::vector<std::shared_ptr<ValueVector>>& getFieldVectors(
         const ValueVector* vector) {
         return reinterpret_cast<StructAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
-            ->getChildrenVectors();
+            ->getFieldVectors();
     }
 
-    static inline std::shared_ptr<ValueVector> getChildVector(
-        const ValueVector* vector, vector_idx_t idx) {
+    static inline std::shared_ptr<ValueVector> getFieldVector(
+        const ValueVector* vector, struct_field_idx_t idx) {
         return reinterpret_cast<StructAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
-            ->getChildrenVectors()[idx];
+            ->getFieldVectors()[idx];
     }
 
-    static inline void referenceVector(
-        ValueVector* vector, vector_idx_t idx, std::shared_ptr<ValueVector> vectorToReference) {
+    static inline void referenceVector(ValueVector* vector, struct_field_idx_t idx,
+        std::shared_ptr<ValueVector> vectorToReference) {
         reinterpret_cast<StructAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())
             ->referenceChildVector(idx, vectorToReference);
     }
 
     static inline void initializeEntries(ValueVector* vector) {
-        std::iota((struct_entry_t*)vector->getData(),
-            (struct_entry_t*)(vector->getData() +
-                              vector->getNumBytesPerValue() * DEFAULT_VECTOR_CAPACITY),
+        std::iota(reinterpret_cast<int64_t*>(vector->getData()),
+            reinterpret_cast<int64_t*>(
+                vector->getData() + vector->getNumBytesPerValue() * DEFAULT_VECTOR_CAPACITY),
             0);
     }
+
+    static void copyFromRowData(ValueVector* vector, uint32_t pos, const uint8_t* rowData);
+    static void copyToRowData(const ValueVector* vector, uint32_t pos, uint8_t* rowData,
+        InMemOverflowBuffer* rowOverflowBuffer);
+    static void copyFromVectorData(ValueVector* dstVector, const uint8_t* dstData,
+        const ValueVector* srcVector, const uint8_t* srcData);
+};
+
+class UnionVector {
+public:
+    static inline ValueVector* getTagVector(const ValueVector* vector) {
+        assert(vector->dataType.getLogicalTypeID() == LogicalTypeID::UNION);
+        return StructVector::getFieldVector(vector, 0).get();
+    }
+
+    static inline void referenceVector(ValueVector* vector, union_field_idx_t fieldIdx,
+        std::shared_ptr<ValueVector> vectorToReference) {
+        StructVector::referenceVector(
+            vector, UnionType::getInternalFieldIdx(fieldIdx), vectorToReference);
+    }
+
+    static inline void setTagField(ValueVector* vector, union_field_idx_t tag) {
+        assert(vector->dataType.getLogicalTypeID() == LogicalTypeID::UNION);
+        for (auto i = 0u; i < vector->state->selVector->selectedSize; i++) {
+            vector->setValue<struct_field_idx_t>(
+                vector->state->selVector->selectedPositions[i], tag);
+        }
+    }
+};
+
+class ArrowColumnVector {
+public:
+    static inline std::shared_ptr<arrow::Array> getArrowColumn(ValueVector* vector) {
+        return reinterpret_cast<ArrowColumnAuxiliaryBuffer*>(vector->auxiliaryBuffer.get())->column;
+    }
+
+    static void setArrowColumn(ValueVector* vector, std::shared_ptr<arrow::Array> column);
 };
 
 class NodeIDVector {
@@ -161,6 +215,29 @@ public:
     // If there is still non-null values after discarding, return true. Otherwise, return false.
     // For an unflat vector, its selection vector is also updated to the resultSelVector.
     static bool discardNull(ValueVector& vector);
+};
+
+class MapVector {
+public:
+    static inline ValueVector* getKeyVector(const ValueVector* vector) {
+        return StructVector::getFieldVector(ListVector::getDataVector(vector), 0 /* keyVectorPos */)
+            .get();
+    }
+
+    static inline ValueVector* getValueVector(const ValueVector* vector) {
+        return StructVector::getFieldVector(ListVector::getDataVector(vector), 1 /* valVectorPos */)
+            .get();
+    }
+
+    static inline uint8_t* getMapKeys(const ValueVector* vector, const list_entry_t& listEntry) {
+        auto keyVector = getKeyVector(vector);
+        return keyVector->getData() + keyVector->getNumBytesPerValue() * listEntry.offset;
+    }
+
+    static inline uint8_t* getMapValues(const ValueVector* vector, const list_entry_t& listEntry) {
+        auto valueVector = getValueVector(vector);
+        return valueVector->getData() + valueVector->getNumBytesPerValue() * listEntry.offset;
+    }
 };
 
 } // namespace common

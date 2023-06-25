@@ -288,6 +288,12 @@ public:
     }
 };
 
+class NodeInsertionDeletionSerialPKTest : public DBTest {
+    std::string getInputDir() override {
+        return TestHelper::appendKuzuRootPath("dataset/tinysnb-serial/");
+    }
+};
+
 TEST_F(DeleteNodeWithEdgesErrorTest, DeleteNodeWithEdgesError) {
     auto conn = std::make_unique<Connection>(database.get());
     ASSERT_TRUE(conn->query("create node table person (ID INT64, primary key(ID));")->isSuccess());
@@ -298,8 +304,7 @@ TEST_F(DeleteNodeWithEdgesErrorTest, DeleteNodeWithEdgesError) {
     auto result = conn->query("match (p:person) delete p");
     ASSERT_EQ(result->getErrorMessage(),
         "Runtime exception: Currently deleting a node with edges is not supported. node table 0 "
-        "nodeOffset 0 has 1 (one-to-many or many-to-many) edges for edge file: " +
-            TestHelper::appendKuzuRootPath("test/unittest_temp/r-1-0.lists."));
+        "nodeOffset 0 has 1 (one-to-many or many-to-many) edges.");
 }
 
 TEST_F(CreateDeleteInt64NodeTrxTest, MixedInsertDeleteCommitNormalExecution) {
@@ -460,4 +465,35 @@ TEST_F(CreateDeleteStringNodeTrxTest, MixedInsertDeleteRollbackNormalExecution) 
 
 TEST_F(CreateDeleteStringNodeTrxTest, MixedInsertDeleteRollbackRecovery) {
     testMixedDeleteAndInsert(false /* rollback */, TransactionTestType::RECOVERY);
+}
+
+TEST_F(NodeInsertionDeletionSerialPKTest, NodeInsertionDeletionWithSerial) {
+    // Firstly, we insert two nodes with serial as primary key to movie table.
+    ASSERT_TRUE(conn->query("CREATE(m : movies {length: 32})")->isSuccess());
+    ASSERT_TRUE(conn->query("CREATE(m : movies {note: 'the movie is very boring'})")->isSuccess());
+    auto actualResult = TestHelper::convertResultToString(
+        *conn->query("match (m:movies) return m.ID, m.length, m.note"));
+    auto expectedResult = std::vector<std::string>{"0|126| this is a very very good movie",
+        "1|2544| the movie is very very good", "2|298|the movie is very interesting and funny",
+        "3|32|", "4||the movie is very boring"};
+    ASSERT_EQ(actualResult, expectedResult);
+    // Then we delete node0 and node3.
+    ASSERT_TRUE(conn->query("MATCH (m:movies) WHERE m.length = 32 or m.length = 126 DELETE m")
+                    ->isSuccess());
+    actualResult = TestHelper::convertResultToString(
+        *conn->query("match (m:movies) return m.ID, m.length, m.note"));
+    expectedResult = std::vector<std::string>{"1|2544| the movie is very very good",
+        "2|298|the movie is very interesting and funny", "4||the movie is very boring"};
+    ASSERT_EQ(actualResult, expectedResult);
+    // Then we insert a new node with serial as primary key to movie table.
+    ASSERT_TRUE(conn->query("CREATE(m : movies {length: 188})")->isSuccess());
+    actualResult = TestHelper::convertResultToString(
+        *conn->query("match (m:movies) return m.ID, m.length, m.note"));
+    expectedResult = std::vector<std::string>{
+        "1|2544| the movie is very very good",
+        "2|298|the movie is very interesting and funny",
+        "3|188|",
+        "4||the movie is very boring",
+    };
+    ASSERT_EQ(actualResult, expectedResult);
 }

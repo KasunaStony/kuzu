@@ -21,14 +21,17 @@ std::shared_ptr<Expression> ExpressionBinder::bindPropertyExpression(
             propertyName + " is reserved for system usage. External access is not allowed.");
     }
     auto child = bindExpression(*parsedExpression.getChild(0));
-    validateExpectedDataType(*child, std::unordered_set<DataTypeID>{NODE, REL, STRUCT});
-    if (NODE == child->dataType.typeID) {
+    validateExpectedDataType(*child,
+        std::vector<LogicalTypeID>{LogicalTypeID::NODE, LogicalTypeID::REL, LogicalTypeID::STRUCT});
+    auto childTypeID = child->dataType.getLogicalTypeID();
+    if (LogicalTypeID::NODE == childTypeID) {
         return bindNodePropertyExpression(*child, propertyName);
-    } else if (common::REL == child->dataType.typeID) {
+    } else if (LogicalTypeID::REL == childTypeID) {
         return bindRelPropertyExpression(*child, propertyName);
     } else {
-        assert(common::STRUCT == child->dataType.typeID);
-        auto stringValue = std::make_unique<Value>(propertyName);
+        assert(LogicalTypeID::STRUCT == childTypeID);
+        auto stringValue =
+            std::make_unique<Value>(LogicalType{LogicalTypeID::STRING}, propertyName);
         return bindScalarFunctionExpression(
             expression_vector{child, createLiteralExpression(std::move(stringValue))},
             STRUCT_EXTRACT_FUNC_NAME);
@@ -46,7 +49,7 @@ std::shared_ptr<Expression> ExpressionBinder::bindNodePropertyExpression(
 }
 
 static void validatePropertiesWithSameDataType(const std::vector<Property>& properties,
-    const DataType& dataType, const std::string& propertyName, const std::string& variableName) {
+    const LogicalType& dataType, const std::string& propertyName, const std::string& variableName) {
     for (auto& property : properties) {
         if (property.dataType != dataType) {
             throw BinderException(
@@ -67,17 +70,6 @@ static std::unordered_map<table_id_t, property_id_t> populatePropertyIDPerTable(
 std::shared_ptr<Expression> ExpressionBinder::bindRelPropertyExpression(
     const Expression& expression, const std::string& propertyName) {
     auto& rel = (RelExpression&)expression;
-    if (propertyName == INTERNAL_LENGTH_SUFFIX) {
-        return rel.getInternalLengthProperty();
-    }
-    switch (rel.getRelType()) {
-    case common::QueryRelType::VARIABLE_LENGTH:
-    case common::QueryRelType::SHORTEST:
-        throw BinderException(
-            "Cannot read property of variable length rel " + rel.toString() + ".");
-    default:
-        break;
-    }
     if (!rel.hasPropertyExpression(propertyName)) {
         throw BinderException(
             "Cannot find property " + propertyName + " for " + expression.toString() + ".");

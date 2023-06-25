@@ -79,6 +79,9 @@ std::string LogicalOperatorUtils::logicalOperatorTypeToString(LogicalOperatorTyp
     case LogicalOperatorType::ORDER_BY: {
         return "ORDER_BY";
     }
+    case LogicalOperatorType::PATH_PROPERTY_PROBE: {
+        return "PATH_PROPERTY_PROBE";
+    }
     case LogicalOperatorType::PROJECTION: {
         return "PROJECTION";
     }
@@ -90,6 +93,9 @@ std::string LogicalOperatorUtils::logicalOperatorTypeToString(LogicalOperatorTyp
     }
     case LogicalOperatorType::RENAME_PROPERTY: {
         return "RENAME_PROPERTY";
+    }
+    case LogicalOperatorType::SCAN_FRONTIER: {
+        return "SCAN_FRONTIER";
     }
     case LogicalOperatorType::SCAN_NODE: {
         return "SCAN_NODE";

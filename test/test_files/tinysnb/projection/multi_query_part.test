@@ -1,5 +1,11 @@
+-GROUP TinySnbReadTest
+-DATASET CSV tinysnb
+
+--
+
+-CASE ProjectionMultiQuery
+
 -NAME PersonNodesWithTest
--COMPARE_RESULT 1
 -QUERY MATCH (a:person) WITH a RETURN a.age
 ---- 8
 35
@@ -12,7 +18,6 @@
 83
 
 -NAME KnowsOneHopWithTest1
--COMPARE_RESULT 1
 -QUERY MATCH (a:person) WHERE a.age>20 WITH a MATCH (a)-[e:knows]->(b:person) RETURN b.fName
 -ENUMERATE
 ---- 9

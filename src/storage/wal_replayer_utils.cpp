@@ -1,5 +1,6 @@
 #include "storage/wal_replayer_utils.h"
 
+#include "storage/in_mem_storage_structure/in_mem_column.h"
 #include "storage/index/hash_index_builder.h"
 
 using namespace kuzu::catalog;
@@ -10,7 +11,7 @@ namespace storage {
 
 void WALReplayerUtils::removeDBFilesForRelProperty(
     const std::string& directory, RelTableSchema* relTableSchema, property_id_t propertyID) {
-    for (auto relDirection : REL_DIRECTIONS) {
+    for (auto relDirection : RelDataDirectionUtils::getRelDataDirections()) {
         auto boundTableID = relTableSchema->getBoundTableID(relDirection);
         if (relTableSchema->isSingleMultiplicityInDirection(relDirection)) {
             removeColumnFilesForPropertyIfExists(directory, relTableSchema->tableID, boundTableID,
@@ -24,8 +25,7 @@ void WALReplayerUtils::removeDBFilesForRelProperty(
 
 void WALReplayerUtils::createEmptyDBFilesForNewRelTable(RelTableSchema* relTableSchema,
     const std::string& directory, const std::map<table_id_t, uint64_t>& maxNodeOffsetsPerTable) {
-    for (auto relDirection : REL_DIRECTIONS) {
-        auto boundTableID = relTableSchema->getBoundTableID(relDirection);
+    for (auto relDirection : RelDataDirectionUtils::getRelDataDirections()) {
         if (relTableSchema->isSingleMultiplicityInDirection(relDirection)) {
             createEmptyDBFilesForColumns(
                 maxNodeOffsetsPerTable, relDirection, directory, relTableSchema);
@@ -39,16 +39,15 @@ void WALReplayerUtils::createEmptyDBFilesForNewRelTable(RelTableSchema* relTable
 void WALReplayerUtils::createEmptyDBFilesForNewNodeTable(
     NodeTableSchema* nodeTableSchema, const std::string& directory) {
     for (auto& property : nodeTableSchema->properties) {
-        if (property.dataType.typeID == SERIAL) {
+        if (property.dataType.getLogicalTypeID() == LogicalTypeID::SERIAL) {
             continue;
         }
         auto fName = StorageUtils::getNodePropertyColumnFName(
             directory, nodeTableSchema->tableID, property.propertyID, DBFileType::ORIGINAL);
-        InMemColumnFactory::getInMemPropertyColumn(fName, property.dataType, 0 /* numNodes */)
-            ->saveToFile();
+        std::make_unique<InMemColumn>(fName, property.dataType)->saveToFile();
     }
-    switch (nodeTableSchema->getPrimaryKey().dataType.typeID) {
-    case INT64: {
+    switch (nodeTableSchema->getPrimaryKey().dataType.getLogicalTypeID()) {
+    case LogicalTypeID::INT64: {
         auto pkIndex = make_unique<HashIndexBuilder<int64_t>>(
             StorageUtils::getNodeIndexFName(
                 directory, nodeTableSchema->tableID, DBFileType::ORIGINAL),
@@ -56,7 +55,7 @@ void WALReplayerUtils::createEmptyDBFilesForNewNodeTable(
         pkIndex->bulkReserve(0 /* numNodes */);
         pkIndex->flush();
     } break;
-    case STRING: {
+    case LogicalTypeID::STRING: {
         auto pkIndex = make_unique<HashIndexBuilder<ku_string_t>>(
             StorageUtils::getNodeIndexFName(
                 directory, nodeTableSchema->tableID, DBFileType::ORIGINAL),
@@ -64,19 +63,18 @@ void WALReplayerUtils::createEmptyDBFilesForNewNodeTable(
         pkIndex->bulkReserve(0 /* numNodes */);
         pkIndex->flush();
     } break;
-    case SERIAL: {
+    case LogicalTypeID::SERIAL: {
         // DO NOTHING.
     } break;
     default: {
-        throw NotImplementedException("Only INT64 and STRING primary keys are supported");
+        throw NotImplementedException("Only INT64, STRING and SERIAL primary keys are supported");
     }
     }
 }
 
 void WALReplayerUtils::renameDBFilesForRelProperty(const std::string& directory,
     kuzu::catalog::RelTableSchema* relTableSchema, kuzu::common::property_id_t propertyID) {
-    for (auto direction : REL_DIRECTIONS) {
-        auto boundTableID = relTableSchema->getBoundTableID(direction);
+    for (auto direction : RelDataDirectionUtils::getRelDataDirections()) {
         if (relTableSchema->isSingleMultiplicityInDirection(direction)) {
             replaceOriginalColumnFilesWithWALVersionIfExists(
                 StorageUtils::getRelPropertyColumnFName(directory, relTableSchema->tableID,
@@ -88,64 +86,41 @@ void WALReplayerUtils::renameDBFilesForRelProperty(const std::string& directory,
     }
 }
 
-void WALReplayerUtils::replaceListsHeadersFilesWithVersionFromWALIfExists(
-    std::unordered_set<RelTableSchema*> relTableSchemas, table_id_t boundTableID,
-    const std::string& directory) {
-    for (auto relTableSchema : relTableSchemas) {
-        for (auto direction : REL_DIRECTIONS) {
-            if (!relTableSchema->isSingleMultiplicityInDirection(direction)) {
-                auto listsHeadersFileName =
-                    StorageUtils::getListHeadersFName(StorageUtils::getAdjListsFName(
-                        directory, relTableSchema->tableID, direction, DBFileType::ORIGINAL));
-                auto walListsHeadersFileName =
-                    StorageUtils::appendWALFileSuffix(listsHeadersFileName);
-                FileUtils::renameFileIfExists(walListsHeadersFileName, listsHeadersFileName);
-            }
-        }
-    }
-}
-
-void WALReplayerUtils::initLargeListPageListsAndSaveToFile(InMemLists* inMemLists) {
-    inMemLists->getListsMetadataBuilder()->initLargeListPageLists(0 /* largeListIdx */);
-    inMemLists->saveToFile();
-}
-
 void WALReplayerUtils::createEmptyDBFilesForRelProperties(RelTableSchema* relTableSchema,
-    const std::string& directory, RelDirection relDirection, uint32_t numNodes,
+    const std::string& directory, RelDataDirection relDirection, uint32_t numNodes,
     bool isForRelPropertyColumn) {
     for (auto& property : relTableSchema->properties) {
         if (isForRelPropertyColumn) {
             auto fName = StorageUtils::getRelPropertyColumnFName(directory, relTableSchema->tableID,
                 relDirection, property.propertyID, DBFileType::ORIGINAL);
-            InMemColumnFactory::getInMemPropertyColumn(fName, property.dataType, numNodes)
-                ->saveToFile();
+            std::make_unique<InMemColumn>(fName, property.dataType)->saveToFile();
         } else {
             auto fName = StorageUtils::getRelPropertyListsFName(directory, relTableSchema->tableID,
                 relDirection, property.propertyID, DBFileType::ORIGINAL);
-            auto inMemPropertyList =
-                InMemListsFactory::getInMemPropertyLists(fName, property.dataType, numNodes);
-            initLargeListPageListsAndSaveToFile(inMemPropertyList.get());
+            InMemListsFactory::getInMemPropertyLists(
+                fName, property.dataType, numNodes, nullptr /* copyDescription */)
+                ->saveToFile();
         }
     }
 }
 
 void WALReplayerUtils::createEmptyDBFilesForColumns(
-    const std::map<table_id_t, uint64_t>& maxNodeOffsetsPerTable, RelDirection relDirection,
+    const std::map<table_id_t, uint64_t>& maxNodeOffsetsPerTable, RelDataDirection relDirection,
     const std::string& directory, RelTableSchema* relTableSchema) {
     auto boundTableID = relTableSchema->getBoundTableID(relDirection);
     auto numNodes = maxNodeOffsetsPerTable.at(boundTableID) == INVALID_OFFSET ?
                         0 :
                         maxNodeOffsetsPerTable.at(boundTableID) + 1;
-    make_unique<InMemAdjColumn>(StorageUtils::getAdjColumnFName(directory, relTableSchema->tableID,
-                                    relDirection, DBFileType::ORIGINAL),
-        numNodes)
+    make_unique<InMemColumn>(StorageUtils::getAdjColumnFName(directory, relTableSchema->tableID,
+                                 relDirection, DBFileType::ORIGINAL),
+        LogicalType(LogicalTypeID::INTERNAL_ID))
         ->saveToFile();
     createEmptyDBFilesForRelProperties(
         relTableSchema, directory, relDirection, numNodes, true /* isForRelPropertyColumn */);
 }
 
 void WALReplayerUtils::createEmptyDBFilesForLists(
-    const std::map<table_id_t, uint64_t>& maxNodeOffsetsPerTable, RelDirection relDirection,
+    const std::map<table_id_t, uint64_t>& maxNodeOffsetsPerTable, RelDataDirection relDirection,
     const std::string& directory, RelTableSchema* relTableSchema) {
     auto boundTableID = relTableSchema->getBoundTableID(relDirection);
     auto numNodes = maxNodeOffsetsPerTable.at(boundTableID) == INVALID_OFFSET ?
@@ -155,7 +130,7 @@ void WALReplayerUtils::createEmptyDBFilesForLists(
         make_unique<InMemAdjLists>(StorageUtils::getAdjListsFName(directory,
                                        relTableSchema->tableID, relDirection, DBFileType::ORIGINAL),
             numNodes);
-    initLargeListPageListsAndSaveToFile(adjLists.get());
+    adjLists->saveToFile();
     createEmptyDBFilesForRelProperties(
         relTableSchema, directory, relDirection, numNodes, false /* isForRelPropertyColumn */);
 }
@@ -168,6 +143,8 @@ void WALReplayerUtils::replaceOriginalColumnFilesWithWALVersionIfExists(
     // replace the original version.
     FileUtils::renameFileIfExists(StorageUtils::getOverflowFileName(walColFileName),
         StorageUtils::getOverflowFileName(originalColFileName));
+    FileUtils::renameFileIfExists(StorageUtils::getPropertyNullFName(walColFileName),
+        StorageUtils::getPropertyNullFName(originalColFileName));
 }
 
 void WALReplayerUtils::replaceOriginalListFilesWithWALVersionIfExists(
@@ -200,20 +177,9 @@ void WALReplayerUtils::fileOperationOnNodeFiles(NodeTableSchema* nodeTableSchema
     const std::string& directory, std::function<void(std::string fileName)> columnFileOperation,
     std::function<void(std::string fileName)> listFileOperation) {
     for (auto& property : nodeTableSchema->properties) {
-        if (property.dataType.typeID == common::STRUCT) {
-            auto structFields =
-                reinterpret_cast<StructTypeInfo*>(property.dataType.getExtraTypeInfo())
-                    ->getStructFields();
-            auto structColumnFName = StorageUtils::getNodePropertyColumnFName(
-                directory, nodeTableSchema->tableID, property.propertyID, DBFileType::ORIGINAL);
-            for (auto& structField : structFields) {
-                columnFileOperation(
-                    StorageUtils::appendStructFieldName(structColumnFName, structField->getName()));
-            }
-        } else {
-            columnFileOperation(StorageUtils::getNodePropertyColumnFName(
-                directory, nodeTableSchema->tableID, property.propertyID, DBFileType::ORIGINAL));
-        }
+        auto columnFName = StorageUtils::getNodePropertyColumnFName(
+            directory, nodeTableSchema->tableID, property.propertyID, DBFileType::ORIGINAL);
+        fileOperationOnNodePropertyFile(columnFName, property.dataType, columnFileOperation);
     }
     columnFileOperation(
         StorageUtils::getNodeIndexFName(directory, nodeTableSchema->tableID, DBFileType::ORIGINAL));
@@ -222,7 +188,7 @@ void WALReplayerUtils::fileOperationOnNodeFiles(NodeTableSchema* nodeTableSchema
 void WALReplayerUtils::fileOperationOnRelFiles(RelTableSchema* relTableSchema,
     const std::string& directory, std::function<void(std::string fileName)> columnFileOperation,
     std::function<void(std::string fileName)> listFileOperation) {
-    for (auto relDirection : REL_DIRECTIONS) {
+    for (auto relDirection : RelDataDirectionUtils::getRelDataDirections()) {
         auto boundTableID = relTableSchema->getBoundTableID(relDirection);
         auto isColumnProperty = relTableSchema->isSingleMultiplicityInDirection(relDirection);
         if (isColumnProperty) {
@@ -241,7 +207,7 @@ void WALReplayerUtils::fileOperationOnRelFiles(RelTableSchema* relTableSchema,
 }
 
 void WALReplayerUtils::fileOperationOnRelPropertyFiles(RelTableSchema* tableSchema,
-    table_id_t nodeTableID, const std::string& directory, RelDirection relDirection,
+    table_id_t nodeTableID, const std::string& directory, RelDataDirection relDirection,
     bool isColumnProperty, std::function<void(std::string fileName)> columnFileOperation,
     std::function<void(std::string fileName)> listFileOperation) {
     for (auto& property : tableSchema->properties) {
@@ -252,6 +218,21 @@ void WALReplayerUtils::fileOperationOnRelPropertyFiles(RelTableSchema* tableSche
             listFileOperation(StorageUtils::getRelPropertyListsFName(directory,
                 tableSchema->tableID, relDirection, property.propertyID, DBFileType::ORIGINAL));
         }
+    }
+}
+
+void WALReplayerUtils::fileOperationOnNodePropertyFile(const std::string& propertyBaseFileName,
+    common::LogicalType& propertyType,
+    std::function<void(std::string fileName)> columnFileOperation) {
+    if (propertyType.getLogicalTypeID() == common::LogicalTypeID::STRUCT) {
+        auto fieldTypes = common::StructType::getFieldTypes(&propertyType);
+        for (auto i = 0u; i < fieldTypes.size(); i++) {
+            fileOperationOnNodePropertyFile(
+                StorageUtils::appendStructFieldName(propertyBaseFileName, i), *fieldTypes[i],
+                columnFileOperation);
+        }
+    } else {
+        columnFileOperation(propertyBaseFileName);
     }
 }
 

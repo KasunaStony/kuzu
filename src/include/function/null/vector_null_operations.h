@@ -6,14 +6,13 @@
 namespace kuzu {
 namespace function {
 
-class VectorNullOperations : public VectorOperations {
-
+class VectorNullOperations {
 public:
-    static scalar_exec_func bindExecFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
+    static void bindExecFunction(common::ExpressionType expressionType,
+        const binder::expression_vector& children, scalar_exec_func& func);
 
-    static scalar_select_func bindSelectFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
+    static void bindSelectFunction(common::ExpressionType expressionType,
+        const binder::expression_vector& children, scalar_select_func& func);
 
 private:
     template<typename FUNC>
@@ -31,12 +30,6 @@ private:
         assert(params.size() == 1);
         return NullOperationExecutor::select<FUNC>(*params[0], selVector);
     }
-
-    static scalar_exec_func bindUnaryExecFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
-
-    static scalar_select_func bindUnarySelectFunction(
-        common::ExpressionType expressionType, const binder::expression_vector& children);
 };
 
 } // namespace function

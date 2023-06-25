@@ -1,8 +1,5 @@
 #include "expression_evaluator/literal_evaluator.h"
 
-#include "common/in_mem_overflow_buffer_utils.h"
-#include "common/vector/value_vector_utils.h"
-
 using namespace kuzu::common;
 using namespace kuzu::storage;
 
@@ -10,7 +7,7 @@ namespace kuzu {
 namespace evaluator {
 
 bool LiteralExpressionEvaluator::select(SelectionVector& selVector) {
-    assert(resultVector->dataType.typeID == BOOL);
+    assert(resultVector->dataType.getLogicalTypeID() == LogicalTypeID::BOOL);
     auto pos = resultVector->state->selVector->selectedPositions[0];
     assert(pos == 0u);
     return resultVector->getValue<bool>(pos) && (!resultVector->isNull(pos));
@@ -28,42 +25,35 @@ void LiteralExpressionEvaluator::resolveResultVector(
 }
 
 void LiteralExpressionEvaluator::copyValueToVector(
-    uint8_t* dstValue, common::ValueVector* dstVector, const common::Value* srcValue) {
+    uint8_t* dstValue, common::ValueVector* dstVector, const Value* srcValue) {
     auto numBytesPerValue = dstVector->getNumBytesPerValue();
-    switch (srcValue->getDataType().typeID) {
-    case common::INT64: {
+    switch (srcValue->getDataType().getPhysicalType()) {
+    case common::PhysicalTypeID::INT64: {
         memcpy(dstValue, &srcValue->val.int64Val, numBytesPerValue);
     } break;
-    case common::INT32: {
+    case common::PhysicalTypeID::INT32: {
         memcpy(dstValue, &srcValue->val.int32Val, numBytesPerValue);
     } break;
-    case common::INT16: {
+    case common::PhysicalTypeID::INT16: {
         memcpy(dstValue, &srcValue->val.int16Val, numBytesPerValue);
     } break;
-    case common::DOUBLE: {
+    case common::PhysicalTypeID::DOUBLE: {
         memcpy(dstValue, &srcValue->val.doubleVal, numBytesPerValue);
     } break;
-    case common::FLOAT: {
+    case common::PhysicalTypeID::FLOAT: {
         memcpy(dstValue, &srcValue->val.floatVal, numBytesPerValue);
     } break;
-    case common::BOOL: {
+    case common::PhysicalTypeID::BOOL: {
         memcpy(dstValue, &srcValue->val.booleanVal, numBytesPerValue);
     } break;
-    case common::DATE: {
-        memcpy(dstValue, &srcValue->val.dateVal, numBytesPerValue);
-    } break;
-    case common::TIMESTAMP: {
-        memcpy(dstValue, &srcValue->val.timestampVal, numBytesPerValue);
-    } break;
-    case common::INTERVAL: {
+    case common::PhysicalTypeID::INTERVAL: {
         memcpy(dstValue, &srcValue->val.intervalVal, numBytesPerValue);
     } break;
-    case common::STRING: {
-        common::InMemOverflowBufferUtils::copyString(srcValue->strVal.data(),
-            srcValue->strVal.length(), *(common::ku_string_t*)dstValue,
-            *common::StringVector::getInMemOverflowBuffer(dstVector));
+    case common::PhysicalTypeID::STRING: {
+        StringVector::addString(dstVector, *(common::ku_string_t*)dstValue, srcValue->strVal.data(),
+            srcValue->strVal.length());
     } break;
-    case common::VAR_LIST: {
+    case common::PhysicalTypeID::VAR_LIST: {
         auto listListEntry = reinterpret_cast<common::list_entry_t*>(dstValue);
         auto numValues = srcValue->nestedTypeVal.size();
         *listListEntry = common::ListVector::addList(dstVector, numValues);
@@ -75,8 +65,9 @@ void LiteralExpressionEvaluator::copyValueToVector(
         }
     } break;
     default:
-        throw common::NotImplementedException("Unimplemented setLiteral() for type " +
-                                              common::Types::dataTypeToString(dstVector->dataType));
+        throw common::NotImplementedException(
+            "Unimplemented setLiteral() for type " +
+            common::LogicalTypeUtils::dataTypeToString(dstVector->dataType));
     }
 }
 

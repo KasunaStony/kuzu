@@ -1,6 +1,7 @@
 #include "main/connection.h"
 
 #include "binder/binder.h"
+#include "binder/visitor/statement_read_write_analyzer.h"
 #include "json.hpp"
 #include "main/database.h"
 #include "main/plan_printer.h"
@@ -50,12 +51,12 @@ void Connection::beginWriteTransaction() {
 
 void Connection::commit() {
     std::unique_lock<std::mutex> lck{mtx};
-    commitOrRollbackNoLock(true /* isCommit */);
+    commitOrRollbackNoLock(TransactionAction::COMMIT);
 }
 
 void Connection::rollback() {
     std::unique_lock<std::mutex> lck{mtx};
-    commitOrRollbackNoLock(false /* is rollback */);
+    commitOrRollbackNoLock(TransactionAction::ROLLBACK);
 }
 
 void Connection::setMaxNumThreadForExec(uint64_t numThreads) {
@@ -109,12 +110,12 @@ void Connection::setTransactionModeNoLock(ConnectionTransactionMode newTransacti
 
 void Connection::commitButSkipCheckpointingForTestingRecovery() {
     std::unique_lock<std::mutex> lck{mtx};
-    commitOrRollbackNoLock(true /* isCommit */, true /* skip checkpointing for testing */);
+    commitOrRollbackNoLock(TransactionAction::COMMIT, true /* skip checkpointing for testing */);
 }
 
 void Connection::rollbackButSkipCheckpointingForTestingRecovery() {
     std::unique_lock<std::mutex> lck{mtx};
-    commitOrRollbackNoLock(false /* is rollback */, true /* skip checkpointing for testing */);
+    commitOrRollbackNoLock(TransactionAction::ROLLBACK, true /* skip checkpointing for testing */);
 }
 
 transaction::Transaction* Connection::getActiveTransaction() {
@@ -133,14 +134,14 @@ bool Connection::hasActiveTransaction() {
 }
 
 void Connection::commitNoLock() {
-    commitOrRollbackNoLock(true /* is commit */);
+    commitOrRollbackNoLock(TransactionAction::COMMIT);
 }
 
 void Connection::rollbackIfNecessaryNoLock() {
     // If there is no active transaction in the system (e.g., an exception occurs during
     // planning), we shouldn't roll back the transaction.
     if (activeTransaction != nullptr) {
-        commitOrRollbackNoLock(false /* is rollback */);
+        commitOrRollbackNoLock(TransactionAction::ROLLBACK);
     }
 }
 
@@ -165,7 +166,8 @@ std::unique_ptr<PreparedStatement> Connection::prepareNoLock(
         auto binder = Binder(*database->catalog);
         auto boundStatement = binder.bind(*statement);
         preparedStatement->statementType = boundStatement->getStatementType();
-        preparedStatement->readOnly = boundStatement->isReadOnly();
+        preparedStatement->readOnly =
+            binder::StatementReadWriteAnalyzer().isReadOnly(*boundStatement);
         preparedStatement->parameterMap = binder.getParameterMap();
         preparedStatement->statementResult = boundStatement->getStatementResult()->copy();
         // planning
@@ -210,8 +212,13 @@ std::unique_ptr<PreparedStatement> Connection::prepareNoLock(
 std::string Connection::getNodeTableNames() {
     lock_t lck{mtx};
     std::string result = "Node tables: \n";
+    std::vector<std::string> nodeTableNames;
     for (auto& tableIDSchema : database->catalog->getReadOnlyVersion()->getNodeTableSchemas()) {
-        result += "\t" + tableIDSchema.second->tableName + "\n";
+        nodeTableNames.push_back(tableIDSchema.second->tableName);
+    }
+    std::sort(nodeTableNames.begin(), nodeTableNames.end());
+    for (auto& nodeTableName : nodeTableNames) {
+        result += "\t" + nodeTableName + "\n";
     }
     return result;
 }
@@ -219,8 +226,13 @@ std::string Connection::getNodeTableNames() {
 std::string Connection::getRelTableNames() {
     lock_t lck{mtx};
     std::string result = "Rel tables: \n";
+    std::vector<std::string> relTableNames;
     for (auto& tableIDSchema : database->catalog->getReadOnlyVersion()->getRelTableSchemas()) {
-        result += "\t" + tableIDSchema.second->tableName + "\n";
+        relTableNames.push_back(tableIDSchema.second->tableName);
+    }
+    std::sort(relTableNames.begin(), relTableNames.end());
+    for (auto& relTableName : relTableNames) {
+        result += "\t" + relTableName + "\n";
     }
     return result;
 }
@@ -236,7 +248,8 @@ std::string Connection::getNodePropertyNames(const std::string& tableName) {
     auto primaryKeyPropertyID =
         catalog->getReadOnlyVersion()->getNodeTableSchema(tableID)->getPrimaryKey().propertyID;
     for (auto& property : catalog->getReadOnlyVersion()->getAllNodeProperties(tableID)) {
-        result += "\t" + property.name + " " + Types::dataTypeToString(property.dataType);
+        result +=
+            "\t" + property.name + " " + LogicalTypeUtils::dataTypeToString(property.dataType);
         result += property.propertyID == primaryKeyPropertyID ? "(PRIMARY KEY)\n" : "\n";
     }
     return result;
@@ -262,7 +275,8 @@ std::string Connection::getRelPropertyNames(const std::string& relTableName) {
         if (catalog::TableSchema::isReservedPropertyName(property.name)) {
             continue;
         }
-        result += "\t" + property.name + " " + Types::dataTypeToString(property.dataType) + "\n";
+        result += "\t" + property.name + " " +
+                  LogicalTypeUtils::dataTypeToString(property.dataType) + "\n";
     }
     return result;
 }
@@ -274,6 +288,11 @@ void Connection::interrupt() {
 void Connection::setQueryTimeOut(uint64_t timeoutInMS) {
     lock_t lck{mtx};
     clientContext->timeoutInMS = timeoutInMS;
+}
+
+uint64_t Connection::getQueryTimeOut() {
+    lock_t lck{mtx};
+    return clientContext->timeoutInMS;
 }
 
 std::unique_ptr<QueryResult> Connection::executeWithParams(PreparedStatement* preparedStatement,
@@ -301,8 +320,9 @@ void Connection::bindParametersNoLock(PreparedStatement* preparedStatement,
         auto expectParam = parameterMap.at(name);
         if (expectParam->dataType != value->getDataType()) {
             throw Exception("Parameter " + name + " has data type " +
-                            Types::dataTypeToString(value->getDataType()) + " but expect " +
-                            Types::dataTypeToString(expectParam->dataType) + ".");
+                            LogicalTypeUtils::dataTypeToString(value->getDataType()) +
+                            " but expects " +
+                            LogicalTypeUtils::dataTypeToString(expectParam->dataType) + ".");
         }
         parameterMap.at(name)->copyValueFrom(*value);
     }
@@ -319,7 +339,7 @@ std::unique_ptr<QueryResult> Connection::executeAndAutoCommitIfNecessaryNoLock(
         try {
             physicalPlan =
                 mapper.mapLogicalPlanToPhysical(preparedStatement->logicalPlans[planIdx].get(),
-                    preparedStatement->getExpressionsToCollect(), preparedStatement->statementType);
+                    preparedStatement->getExpressionsToCollect());
         } catch (std::exception& exception) {
             preparedStatement->success = false;
             preparedStatement->errMsg = exception.what();
@@ -375,14 +395,14 @@ void Connection::beginTransactionNoLock(TransactionType type) {
                             database->transactionManager->beginWriteTransaction();
 }
 
-void Connection::commitOrRollbackNoLock(bool isCommit, bool skipCheckpointForTesting) {
+void Connection::commitOrRollbackNoLock(
+    transaction::TransactionAction action, bool skipCheckpointForTesting) {
     if (activeTransaction) {
-        if (activeTransaction->isWriteTransaction()) {
-            database->commitAndCheckpointOrRollback(
-                activeTransaction.get(), isCommit, skipCheckpointForTesting);
+        if (action == TransactionAction::COMMIT) {
+            database->commit(activeTransaction.get(), skipCheckpointForTesting);
         } else {
-            isCommit ? database->transactionManager->commit(activeTransaction.get()) :
-                       database->transactionManager->rollback(activeTransaction.get());
+            assert(action == TransactionAction::ROLLBACK);
+            database->rollback(activeTransaction.get(), skipCheckpointForTesting);
         }
         activeTransaction.reset();
         transactionMode = ConnectionTransactionMode::AUTO_COMMIT;

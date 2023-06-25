@@ -7,6 +7,7 @@
 
 #include "catalog/catalog.h"
 #include "common/logging_level_utils.h"
+#include "common/string_utils.h"
 #include "common/type_utils.h"
 #include "json.hpp"
 #include "processor/result/factorized_table.h"
@@ -182,6 +183,7 @@ void highlight(char* buffer, char* resultBuf, uint32_t maxLen, uint32_t cursorPo
     }
     tokenList.emplace_back(word);
     for (std::string& token : tokenList) {
+#ifndef _WIN32
         if (token.find(' ') == std::string::npos) {
             for (const std::string& keyword : keywordList) {
                 if (regex_search(
@@ -195,6 +197,7 @@ void highlight(char* buffer, char* resultBuf, uint32_t maxLen, uint32_t cursorPo
                 }
             }
         }
+#endif
         highlightBuffer << token;
     }
     strcpy(resultBuf, highlightBuffer.str().c_str());
@@ -287,21 +290,15 @@ void EmbeddedShell::setNumThreads(const std::string& numThreadsString) {
     } catch (Exception& e) { printf("%s", e.what()); }
 }
 
-static inline std::string ltrim(const std::string& input) {
-    auto s = input;
-    s.erase(s.begin(), find_if(s.begin(), s.end(), [](unsigned char ch) { return !isspace(ch); }));
-    return s;
-}
-
 void EmbeddedShell::printNodeSchema(const std::string& tableName) {
-    auto name = ltrim(tableName);
+    auto name = StringUtils::ltrim(tableName);
     try {
         printf("%s\n", conn->getNodePropertyNames(name).c_str());
     } catch (Exception& e) { printf("%s\n", e.what()); }
 }
 
 void EmbeddedShell::printRelSchema(const std::string& tableName) {
-    auto name = ltrim(tableName);
+    auto name = StringUtils::ltrim(tableName);
     try {
         printf("%s\n", conn->getRelPropertyNames(name).c_str());
     } catch (Exception& e) { printf("%s\n", e.what()); }
@@ -402,7 +399,7 @@ void EmbeddedShell::printExecutionResult(QueryResult& queryResult) const {
 }
 
 void EmbeddedShell::setLoggingLevel(const std::string& loggingLevel) {
-    auto level = ltrim(loggingLevel);
+    auto level = StringUtils::ltrim(loggingLevel);
     try {
         database->setLoggingLevel(level);
         printf("logging level has been set to: %s.\n", level.c_str());
@@ -410,7 +407,7 @@ void EmbeddedShell::setLoggingLevel(const std::string& loggingLevel) {
 }
 
 void EmbeddedShell::setQueryTimeout(const std::string& timeoutInMS) {
-    auto queryTimeOutVal = std::stoull(ltrim(timeoutInMS));
+    auto queryTimeOutVal = std::stoull(StringUtils::ltrim(timeoutInMS));
     conn->setQueryTimeOut(queryTimeOutVal);
     printf("query timeout value has been set to: %llu ms.\n", queryTimeOutVal);
 }

@@ -11,15 +11,15 @@ namespace main {
 
 struct DataTypeInfo {
 public:
-    DataTypeInfo(common::DataTypeID typeID, std::string name)
+    DataTypeInfo(common::LogicalTypeID typeID, std::string name)
         : typeID{typeID}, name{std::move(name)} {}
 
-    common::DataTypeID typeID;
+    common::LogicalTypeID typeID;
     std::string name;
     std::vector<std::unique_ptr<DataTypeInfo>> childrenTypesInfo;
 
     static std::unique_ptr<DataTypeInfo> getInfoForDataType(
-        const common::DataType& type, const std::string& name);
+        const common::LogicalType& type, const std::string& name);
 };
 
 /**
@@ -54,15 +54,15 @@ public:
     /**
      * @return name of each column in query result.
      */
-    KUZU_API std::vector<std::string> getColumnNames();
+    KUZU_API std::vector<std::string> getColumnNames() const;
     /**
      * @return dataType of each column in query result.
      */
-    KUZU_API std::vector<common::DataType> getColumnDataTypes();
+    KUZU_API std::vector<common::LogicalType> getColumnDataTypes() const;
     /**
      * @return num of tuples in query result.
      */
-    KUZU_API uint64_t getNumTuples();
+    KUZU_API uint64_t getNumTuples() const;
     /**
      * @return query summary which stores the execution time, compiling time, plan and query
      * options.
@@ -73,7 +73,7 @@ public:
     /**
      * @return whether there are more tuples to read.
      */
-    KUZU_API bool hasNext();
+    KUZU_API bool hasNext() const;
     /**
      * @return next flat tuple in the query result.
      */
@@ -101,7 +101,7 @@ private:
         const std::vector<std::shared_ptr<binder::Expression>>& columns,
         const std::vector<std::vector<std::shared_ptr<binder::Expression>>>&
             expressionToCollectPerColumn);
-    void validateQuerySucceed();
+    void validateQuerySucceed() const;
 
 private:
     // execution status
@@ -110,7 +110,7 @@ private:
 
     // header information
     std::vector<std::string> columnNames;
-    std::vector<common::DataType> columnDataTypes;
+    std::vector<common::LogicalType> columnDataTypes;
     // data
     std::shared_ptr<processor::FactorizedTable> factorizedTable;
     std::unique_ptr<processor::FlatTupleIterator> iterator;

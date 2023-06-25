@@ -80,9 +80,9 @@ bool Expression::hasSubExpressionOfType(
 }
 
 bool ExpressionUtil::allExpressionsHaveDataType(
-    expression_vector& expressions, DataTypeID dataTypeID) {
+    expression_vector& expressions, LogicalTypeID dataTypeID) {
     for (auto& expression : expressions) {
-        if (expression->dataType.typeID != dataTypeID) {
+        if (expression->dataType.getLogicalTypeID() != dataTypeID) {
             return false;
         }
     }
@@ -105,6 +105,21 @@ std::string ExpressionUtil::toString(const expression_vector& expressions) {
     auto result = expressions[0]->toString();
     for (auto i = 1u; i < expressions.size(); ++i) {
         result += "," + expressions[i]->toString();
+    }
+    return result;
+}
+
+expression_vector ExpressionUtil::excludeExpressions(
+    const expression_vector& expressions, const expression_vector& expressionsToExclude) {
+    expression_set excludeSet;
+    for (auto& expression : expressionsToExclude) {
+        excludeSet.insert(expression);
+    }
+    expression_vector result;
+    for (auto& expression : expressions) {
+        if (!excludeSet.contains(expression)) {
+            result.push_back(expression);
+        }
     }
     return result;
 }

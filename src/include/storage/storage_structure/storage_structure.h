@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <utility>
 
 #include "common/constants.h"
 #include "common/vector/value_vector.h"
@@ -70,7 +71,7 @@ protected:
 class BaseColumnOrList : public StorageStructure {
 
 public:
-    BaseColumnOrList(const common::DataType& dataType) : dataType{dataType} {}
+    explicit BaseColumnOrList(common::LogicalType dataType) : dataType{std::move(dataType)} {}
 
     // Maps the position of element in page to its byte offset in page.
     // TODO(Everyone): we should slowly get rid of this function.
@@ -88,8 +89,8 @@ protected:
     }
 
     BaseColumnOrList(const StorageStructureIDAndFName& storageStructureIDAndFName,
-        common::DataType dataType, const size_t& elementSize, BufferManager* bufferManager,
-        bool hasNULLBytes, WAL* wal);
+        common::LogicalType dataType, const size_t& elementSize, BufferManager* bufferManager,
+        bool hasInlineNullBytes, WAL* wal);
 
     void readBySequentialCopy(transaction::Transaction* transaction, common::ValueVector* vector,
         PageElementCursor& cursor,
@@ -105,20 +106,6 @@ protected:
         uint16_t pagePosOfFirstElement, uint64_t numValuesToRead, common::table_id_t commonTableID,
         bool hasNoNullGuarantee);
 
-    void readInternalIDsBySequentialCopyWithSelState(transaction::Transaction* transaction,
-        common::ValueVector* vector, PageElementCursor& cursor,
-        const std::function<common::page_idx_t(common::page_idx_t)>& logicalToPhysicalPageMapper,
-        common::table_id_t commonTableID);
-
-    void readBySequentialCopyWithSelState(transaction::Transaction* transaction,
-        common::ValueVector* vector, PageElementCursor& cursor,
-        const std::function<common::page_idx_t(common::page_idx_t)>& logicalToPhysicalPageMapper);
-
-    void readSingleNullBit(common::ValueVector* valueVector, const uint8_t* frame,
-        uint64_t elementPos, uint64_t offsetInVector) const;
-
-    void setNullBitOfAPosInFrame(const uint8_t* frame, uint16_t elementPos, bool isNull) const;
-
     void readNullBitsFromAPage(common::ValueVector* valueVector, const uint8_t* frame,
         uint64_t posInPage, uint64_t posInVector, uint64_t numBitsToRead) const;
 
@@ -128,7 +115,7 @@ private:
         uint16_t pagePosOfFirstElement, uint64_t numValuesToRead);
 
 public:
-    common::DataType dataType;
+    common::LogicalType dataType;
     size_t elementSize;
     uint32_t numElementsPerPage;
 };

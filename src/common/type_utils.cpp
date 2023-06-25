@@ -27,154 +27,78 @@ bool TypeUtils::convertToBoolean(const char* data) {
         return false;
     }
     throw ConversionException(
-        prefixConversionExceptionMessage(data, BOOL) +
+        prefixConversionExceptionMessage(data, LogicalTypeID::BOOL) +
         ". Input is not equal to True or False (in a case-insensitive manner)");
 }
 
-std::string TypeUtils::listValueToString(
-    const DataType& dataType, uint8_t* listValues, uint64_t pos) {
-    switch (dataType.typeID) {
-    case BOOL:
-        return TypeUtils::toString(((bool*)listValues)[pos]);
-    case INT64:
-        return TypeUtils::toString(((int64_t*)listValues)[pos]);
-    case DOUBLE:
-        return TypeUtils::toString(((double_t*)listValues)[pos]);
-    case DATE:
-        return TypeUtils::toString(((date_t*)listValues)[pos]);
-    case TIMESTAMP:
-        return TypeUtils::toString(((timestamp_t*)listValues)[pos]);
-    case INTERVAL:
-        return TypeUtils::toString(((interval_t*)listValues)[pos]);
-    case STRING:
-        return TypeUtils::toString(((ku_string_t*)listValues)[pos]);
-    case VAR_LIST:
-        return TypeUtils::toString(((ku_list_t*)listValues)[pos], dataType);
+std::string TypeUtils::castValueToString(
+    const LogicalType& dataType, uint8_t* value, void* vector) {
+    auto valueVector = reinterpret_cast<ValueVector*>(vector);
+    switch (dataType.getLogicalTypeID()) {
+    case LogicalTypeID::BOOL:
+        return TypeUtils::toString(*reinterpret_cast<bool*>(value));
+    case LogicalTypeID::INT64:
+        return TypeUtils::toString(*reinterpret_cast<int64_t*>(value));
+    case LogicalTypeID::INT32:
+        return TypeUtils::toString(*reinterpret_cast<int32_t*>(value));
+    case LogicalTypeID::INT16:
+        return TypeUtils::toString(*reinterpret_cast<int16_t*>(value));
+    case LogicalTypeID::DOUBLE:
+        return TypeUtils::toString(*reinterpret_cast<double_t*>(value));
+    case LogicalTypeID::FLOAT:
+        return TypeUtils::toString(*reinterpret_cast<float_t*>(value));
+    case LogicalTypeID::DATE:
+        return TypeUtils::toString(*reinterpret_cast<date_t*>(value));
+    case LogicalTypeID::TIMESTAMP:
+        return TypeUtils::toString(*reinterpret_cast<timestamp_t*>(value));
+    case LogicalTypeID::INTERVAL:
+        return TypeUtils::toString(*reinterpret_cast<interval_t*>(value));
+    case LogicalTypeID::STRING:
+        return TypeUtils::toString(*reinterpret_cast<ku_string_t*>(value));
+    case LogicalTypeID::INTERNAL_ID:
+        return TypeUtils::toString(*reinterpret_cast<internalID_t*>(value));
+    case LogicalTypeID::VAR_LIST:
+        return TypeUtils::toString(*reinterpret_cast<list_entry_t*>(value), valueVector);
+    case LogicalTypeID::STRUCT:
+        return TypeUtils::toString(*reinterpret_cast<struct_entry_t*>(value), valueVector);
     default:
-        throw RuntimeException("Invalid data type " + Types::dataTypeToString(dataType) +
-                               " for TypeUtils::listValueToString.");
+        throw RuntimeException("Invalid data type " + LogicalTypeUtils::dataTypeToString(dataType) +
+                               " for TypeUtils::castValueToString.");
     }
 }
 
-std::string TypeUtils::toString(const ku_list_t& val, const DataType& dataType) {
-    std::string result = "[";
-    for (auto i = 0u; i < val.size; ++i) {
-        result += listValueToString(
-            *dataType.getChildType(), reinterpret_cast<uint8_t*>(val.overflowPtr), i);
-        result += (i == val.size - 1 ? "]" : ",");
-    }
-    return result;
-}
-
-std::string TypeUtils::toString(const list_entry_t& val, void* valVector) {
-    auto listVector = (common::ValueVector*)valVector;
+std::string TypeUtils::toString(const list_entry_t& val, void* valueVector) {
+    auto listVector = (common::ValueVector*)valueVector;
     std::string result = "[";
     auto values = ListVector::getListValues(listVector, val);
-    for (auto i = 0u; i < val.size - 1; ++i) {
-        result += (listVector->dataType.getChildType()->typeID == VAR_LIST ?
-                          toString(reinterpret_cast<common::list_entry_t*>(values)[i],
-                              ListVector::getDataVector(listVector)) :
-                          listValueToString(*listVector->dataType.getChildType(), values, i)) +
-                  ",";
+    auto childType = VarListType::getChildType(&listVector->dataType);
+    auto dataVector = ListVector::getDataVector(listVector);
+    for (auto i = 0u; i < val.size; ++i) {
+        result += castValueToString(*childType, values, dataVector);
+        result += (val.size - 1 == i ? "]" : ",");
+        values += ListVector::getDataVector(listVector)->getNumBytesPerValue();
     }
-    result +=
-        (listVector->dataType.getChildType()->typeID == VAR_LIST ?
-                toString(reinterpret_cast<common::list_entry_t*>(values)[val.size - 1],
-                    ListVector::getDataVector(listVector)) :
-                listValueToString(*listVector->dataType.getChildType(), values, val.size - 1)) +
-        "]";
     return result;
 }
 
-std::string TypeUtils::prefixConversionExceptionMessage(const char* data, DataTypeID dataTypeID) {
-    return "Cannot convert string " + std::string(data) + " to " +
-           Types::dataTypeToString(dataTypeID) + ".";
+std::string TypeUtils::toString(const struct_entry_t& val, void* valVector) {
+    auto structVector = (common::ValueVector*)valVector;
+    std::string result = "{";
+    auto fields = StructType::getFields(&structVector->dataType);
+    for (auto i = 0u; i < fields.size(); ++i) {
+        auto field = fields[i];
+        auto fieldVector = StructVector::getFieldVector(structVector, i);
+        auto value = fieldVector->getData() + fieldVector->getNumBytesPerValue() * val.pos;
+        result += castValueToString(*field->getType(), value, fieldVector.get());
+        result += (fields.size() - 1 == i ? "}" : ",");
+    }
+    return result;
 }
 
-template<>
-bool TypeUtils::isValueEqual(
-    common::list_entry_t& leftEntry, common::list_entry_t& rightEntry, void* left, void* right) {
-    auto leftVector = (ValueVector*)left;
-    auto rightVector = (ValueVector*)right;
-    if (leftVector->dataType != rightVector->dataType || leftEntry.size != rightEntry.size) {
-        return false;
-    }
-    auto leftValues = ListVector::getListValues(leftVector, leftEntry);
-    auto rightValues = ListVector::getListValues(rightVector, rightEntry);
-    switch (leftVector->dataType.getChildType()->typeID) {
-    case BOOL: {
-        for (auto i = 0u; i < leftEntry.size; i++) {
-            if (!isValueEqual(reinterpret_cast<uint8_t*>(leftValues)[i],
-                    reinterpret_cast<uint8_t*>(rightValues)[i], left, right)) {
-                return false;
-            }
-        }
-    } break;
-    case INT64: {
-        for (auto i = 0u; i < leftEntry.size; i++) {
-            if (!isValueEqual(reinterpret_cast<int64_t*>(leftValues)[i],
-                    reinterpret_cast<int64_t*>(rightValues)[i], left, right)) {
-                return false;
-            }
-        }
-    } break;
-    case DOUBLE: {
-        for (auto i = 0u; i < leftEntry.size; i++) {
-            if (!isValueEqual(reinterpret_cast<double_t*>(leftValues)[i],
-                    reinterpret_cast<double_t*>(rightValues)[i], left, right)) {
-                return false;
-            }
-        }
-    } break;
-    case STRING: {
-        for (auto i = 0u; i < leftEntry.size; i++) {
-            if (!isValueEqual(reinterpret_cast<ku_string_t*>(leftValues)[i],
-                    reinterpret_cast<ku_string_t*>(rightValues)[i], left, right)) {
-                return false;
-            }
-        }
-    } break;
-    case DATE: {
-        for (auto i = 0u; i < leftEntry.size; i++) {
-            if (!isValueEqual(reinterpret_cast<date_t*>(leftValues)[i],
-                    reinterpret_cast<date_t*>(rightValues)[i], left, right)) {
-                return false;
-            }
-        }
-    } break;
-    case TIMESTAMP: {
-        for (auto i = 0u; i < leftEntry.size; i++) {
-            if (!isValueEqual(reinterpret_cast<timestamp_t*>(leftValues)[i],
-                    reinterpret_cast<timestamp_t*>(rightValues)[i], left, right)) {
-                return false;
-            }
-        }
-    } break;
-    case INTERVAL: {
-        for (auto i = 0u; i < leftEntry.size; i++) {
-            if (!isValueEqual(reinterpret_cast<interval_t*>(leftValues)[i],
-                    reinterpret_cast<interval_t*>(rightValues)[i], left, right)) {
-                return false;
-            }
-        }
-    } break;
-    case VAR_LIST: {
-        for (auto i = 0u; i < leftEntry.size; i++) {
-            if (!isValueEqual(reinterpret_cast<list_entry_t*>(leftValues)[i],
-                    reinterpret_cast<list_entry_t*>(rightValues)[i],
-                    ListVector::getDataVector(leftVector),
-                    ListVector::getDataVector(rightVector))) {
-                return false;
-            }
-        }
-    } break;
-    default: {
-        throw RuntimeException("Unsupported data type " +
-                               Types::dataTypeToString(leftVector->dataType) +
-                               " for TypeUtils::isValueEqual.");
-    }
-    }
-    return true;
+std::string TypeUtils::prefixConversionExceptionMessage(
+    const char* data, LogicalTypeID dataTypeID) {
+    return "Cannot convert string " + std::string(data) + " to " +
+           LogicalTypeUtils::dataTypeToString(dataTypeID) + ".";
 }
 
 } // namespace common

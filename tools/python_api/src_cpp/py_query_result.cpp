@@ -24,7 +24,10 @@ void PyQueryResult::initialize(py::handle& m) {
         .def("getColumnNames", &PyQueryResult::getColumnNames)
         .def("getColumnDataTypes", &PyQueryResult::getColumnDataTypes)
         .def("resetIterator", &PyQueryResult::resetIterator)
-        .def("isSuccess", &PyQueryResult::isSuccess);
+        .def("isSuccess", &PyQueryResult::isSuccess)
+        .def("getCompilingTime", &PyQueryResult::getCompilingTime)
+        .def("getExecutionTime", &PyQueryResult::getExecutionTime)
+        .def("getNumTuples", &PyQueryResult::getNumTuples);
     // PyDateTime_IMPORT is a macro that must be invoked before calling any other cpython datetime
     // macros. One could also invoke this in a separate function like constructor. See
     // https://docs.python.org/3/c-api/datetime.html for details.
@@ -67,35 +70,35 @@ py::object PyQueryResult::convertValueToPyObject(const Value& value) {
         return py::none();
     }
     auto dataType = value.getDataType();
-    switch (dataType.typeID) {
-    case BOOL: {
+    switch (dataType.getLogicalTypeID()) {
+    case LogicalTypeID::BOOL: {
         return py::cast(value.getValue<bool>());
     }
-    case INT16: {
+    case LogicalTypeID::INT16: {
         return py::cast(value.getValue<int16_t>());
     }
-    case INT32: {
+    case LogicalTypeID::INT32: {
         return py::cast(value.getValue<int32_t>());
     }
-    case INT64: {
+    case LogicalTypeID::INT64: {
         return py::cast(value.getValue<int64_t>());
     }
-    case FLOAT: {
+    case LogicalTypeID::FLOAT: {
         return py::cast(value.getValue<float>());
     }
-    case DOUBLE: {
+    case LogicalTypeID::DOUBLE: {
         return py::cast(value.getValue<double>());
     }
-    case STRING: {
+    case LogicalTypeID::STRING: {
         return py::cast(value.getValue<std::string>());
     }
-    case DATE: {
+    case LogicalTypeID::DATE: {
         auto dateVal = value.getValue<date_t>();
         int32_t year, month, day;
         Date::Convert(dateVal, year, month, day);
         return py::cast<py::object>(PyDate_FromDate(year, month, day));
     }
-    case TIMESTAMP: {
+    case LogicalTypeID::TIMESTAMP: {
         auto timestampVal = value.getValue<timestamp_t>();
         int32_t year, month, day, hour, min, sec, micros;
         date_t date;
@@ -106,15 +109,15 @@ py::object PyQueryResult::convertValueToPyObject(const Value& value) {
         return py::cast<py::object>(
             PyDateTime_FromDateAndTime(year, month, day, hour, min, sec, micros));
     }
-    case INTERVAL: {
+    case LogicalTypeID::INTERVAL: {
         auto intervalVal = value.getValue<interval_t>();
         auto days = Interval::DAYS_PER_MONTH * intervalVal.months + intervalVal.days;
         return py::cast<py::object>(py::module::import("datetime")
                                         .attr("timedelta")(py::arg("days") = days,
                                             py::arg("microseconds") = intervalVal.micros));
     }
-    case VAR_LIST:
-    case FIXED_LIST: {
+    case LogicalTypeID::VAR_LIST:
+    case LogicalTypeID::FIXED_LIST: {
         auto& listVal = value.getListValReference();
         py::list list;
         for (auto i = 0u; i < listVal.size(); ++i) {
@@ -122,25 +125,36 @@ py::object PyQueryResult::convertValueToPyObject(const Value& value) {
         }
         return std::move(list);
     }
-    case NODE: {
+    case LogicalTypeID::STRUCT: {
+        auto fieldNames = StructType::getFieldNames(&dataType);
+        py::dict dict;
+        auto& structVals = value.getListValReference();
+        for (auto i = 0u; i < structVals.size(); ++i) {
+            auto key = py::str(fieldNames[i]);
+            auto val = convertValueToPyObject(*structVals[i]);
+            dict[key] = val;
+        }
+        return dict;
+    }
+    case LogicalTypeID::NODE: {
         auto nodeVal = value.getValue<NodeVal>();
         auto dict = PyQueryResult::getPyDictFromProperties(nodeVal.getProperties());
         dict["_label"] = py::cast(nodeVal.getLabelName());
         dict["_id"] = convertNodeIdToPyDict(nodeVal.getNodeID());
         return std::move(dict);
     }
-    case REL: {
+    case LogicalTypeID::REL: {
         auto relVal = value.getValue<RelVal>();
         auto dict = PyQueryResult::getPyDictFromProperties(relVal.getProperties());
         dict["_src"] = convertNodeIdToPyDict(relVal.getSrcNodeID());
         dict["_dst"] = convertNodeIdToPyDict(relVal.getDstNodeID());
         return std::move(dict);
     }
-    case INTERNAL_ID: {
+    case LogicalTypeID::INTERNAL_ID: {
         return convertNodeIdToPyDict(value.getValue<nodeID_t>());
     }
     default:
-        throw NotImplementedException("Unsupported type: " + Types::dataTypeToString(dataType));
+        throw NotImplementedException("Unsupported type: " + LogicalTypeUtils::dataTypeToString(dataType));
     }
 }
 
@@ -187,7 +201,7 @@ py::list PyQueryResult::getColumnDataTypes() {
     auto columnDataTypes = queryResult->getColumnDataTypes();
     py::tuple result(columnDataTypes.size());
     for (auto i = 0u; i < columnDataTypes.size(); ++i) {
-        result[i] = py::cast(Types::dataTypeToString(columnDataTypes[i]));
+        result[i] = py::cast(LogicalTypeUtils::dataTypeToString(columnDataTypes[i]));
     }
     return std::move(result);
 }
@@ -224,4 +238,16 @@ py::dict PyQueryResult::convertNodeIdToPyDict(const nodeID_t& nodeId) {
     idDict["offset"] = py::cast(nodeId.offset);
     idDict["table"] = py::cast(nodeId.tableID);
     return idDict;
+}
+
+double PyQueryResult::getExecutionTime() {
+    return queryResult->getQuerySummary()->getExecutionTime();
+}
+
+double PyQueryResult::getCompilingTime() {
+    return queryResult->getQuerySummary()->getCompilingTime();
+}
+
+size_t PyQueryResult::getNumTuples() {
+    return queryResult->getNumTuples();
 }

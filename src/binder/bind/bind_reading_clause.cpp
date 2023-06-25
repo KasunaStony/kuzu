@@ -23,7 +23,6 @@ std::unique_ptr<BoundReadingClause> Binder::bindReadingClause(const ReadingClaus
 
 std::unique_ptr<BoundReadingClause> Binder::bindMatchClause(const ReadingClause& readingClause) {
     auto& matchClause = (MatchClause&)readingClause;
-    auto prevVariablesInScope = variablesInScope;
     auto [queryGraphCollection, propertyCollection] =
         bindGraphPattern(matchClause.getPatternElements());
     auto boundMatchClause =
@@ -50,9 +49,10 @@ std::unique_ptr<BoundReadingClause> Binder::bindMatchClause(const ReadingClause&
 std::unique_ptr<BoundReadingClause> Binder::bindUnwindClause(const ReadingClause& readingClause) {
     auto& unwindClause = (UnwindClause&)readingClause;
     auto boundExpression = expressionBinder.bindExpression(*unwindClause.getExpression());
-    boundExpression = ExpressionBinder::implicitCastIfNecessary(boundExpression, VAR_LIST);
-    auto aliasExpression =
-        createVariable(unwindClause.getAlias(), *boundExpression->dataType.getChildType());
+    boundExpression =
+        ExpressionBinder::implicitCastIfNecessary(boundExpression, LogicalTypeID::VAR_LIST);
+    auto aliasExpression = createVariable(
+        unwindClause.getAlias(), *common::VarListType::getChildType(&boundExpression->dataType));
     return make_unique<BoundUnwindClause>(std::move(boundExpression), std::move(aliasExpression));
 }
 

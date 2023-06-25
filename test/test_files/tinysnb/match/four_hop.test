@@ -1,3 +1,10 @@
+-GROUP TinySnbReadTest
+-DATASET CSV tinysnb
+
+--
+
+-CASE MatchFourHop
+
 -NAME FourHopKnowsTest
 -QUERY MATCH (a:person)-[e1:knows]->(b:person)-[e2:knows]->(c:person)-[e3:knows]->(d:person)-[e4:knows]->(e:person) RETURN COUNT(*)
 -ENUMERATE

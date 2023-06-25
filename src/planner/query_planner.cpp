@@ -1,6 +1,7 @@
 #include "planner/query_planner.h"
 
 #include "binder/query/bound_regular_query.h"
+#include "binder/visitor/property_collector.h"
 #include "planner/logical_plan/logical_operator/logical_accumulate.h"
 #include "planner/logical_plan/logical_operator/logical_distinct.h"
 #include "planner/logical_plan/logical_operator/logical_expressions_scan.h"
@@ -53,16 +54,9 @@ std::unique_ptr<LogicalPlan> QueryPlanner::getBestPlan(
 // enumerate regular query level.
 std::vector<std::unique_ptr<LogicalPlan>> QueryPlanner::planSingleQuery(
     const NormalizedSingleQuery& singleQuery) {
-    // populate properties to scan
-    propertiesToScan.clear();
-    std::unordered_set<std::string> populatedProperties; // remove duplication
-    for (auto& expression : singleQuery.getPropertiesToRead()) {
-        assert(expression->expressionType == PROPERTY);
-        if (!populatedProperties.contains(expression->getUniqueName())) {
-            propertiesToScan.push_back(expression);
-            populatedProperties.insert(expression->getUniqueName());
-        }
-    }
+    auto propertyCollector = binder::PropertyCollector();
+    propertyCollector.visitSingleQuery(singleQuery);
+    propertiesToScan = propertyCollector.getProperties();
     joinOrderEnumerator.resetState();
     auto plans = getInitialEmptyPlans();
     for (auto i = 0u; i < singleQuery.getNumQueryParts(); ++i) {
@@ -164,7 +158,7 @@ static expression_vector getCorrelatedExpressions(
 static expression_vector getJoinNodeIDs(expression_vector& expressions) {
     expression_vector joinNodeIDs;
     for (auto& expression : expressions) {
-        if (expression->dataType.typeID == INTERNAL_ID) {
+        if (expression->dataType.getLogicalTypeID() == LogicalTypeID::INTERNAL_ID) {
             joinNodeIDs.push_back(expression);
         }
     }
@@ -178,7 +172,8 @@ void QueryPlanner::planOptionalMatch(const QueryGraphCollection& queryGraphColle
     if (correlatedExpressions.empty()) {
         throw NotImplementedException("Optional match is disconnected with previous MATCH clause.");
     }
-    if (ExpressionUtil::allExpressionsHaveDataType(correlatedExpressions, INTERNAL_ID)) {
+    if (ExpressionUtil::allExpressionsHaveDataType(
+            correlatedExpressions, LogicalTypeID::INTERNAL_ID)) {
         auto joinNodeIDs = getJoinNodeIDs(correlatedExpressions);
         // When correlated variables are all NODE IDs, the subquery can be un-nested as left join.
         // Join nodes are scanned twice in both outer and inner. However, we make sure inner table
@@ -233,7 +228,8 @@ void QueryPlanner::planExistsSubquery(
     if (correlatedExpressions.empty()) {
         throw NotImplementedException("Subquery is disconnected with outer query.");
     }
-    if (ExpressionUtil::allExpressionsHaveDataType(correlatedExpressions, INTERNAL_ID)) {
+    if (ExpressionUtil::allExpressionsHaveDataType(
+            correlatedExpressions, LogicalTypeID::INTERNAL_ID)) {
         auto joinNodeIDs = getJoinNodeIDs(correlatedExpressions);
         // Unnest as mark join. See planOptionalMatch for unnesting logic.
         auto prevContext = joinOrderEnumerator.enterSubquery(joinNodeIDs);

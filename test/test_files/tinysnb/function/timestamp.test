@@ -1,3 +1,10 @@
+-GROUP TinySnbReadTest
+-DATASET CSV tinysnb
+
+--
+
+-CASE FunctionTimestamp
+
 -NAME TimestampLiteralEqualityComparison
 -QUERY MATCH (a:person) WHERE a.registerTime = timestamp('1976-12-23 11:21:42') RETURN COUNT(*)
 ---- 1

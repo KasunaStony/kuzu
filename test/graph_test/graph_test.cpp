@@ -44,16 +44,17 @@ void BaseGraphTest::validateNodeColumnFilesExistence(
     for (auto& property : nodeTableSchema->properties) {
         validateColumnFilesExistence(StorageUtils::getNodePropertyColumnFName(databasePath,
                                          nodeTableSchema->tableID, property.propertyID, dbFileType),
-            existence, containsOverflowFile(property.dataType.typeID));
+            existence, containsOverflowFile(property.dataType.getLogicalTypeID()));
     }
     validateColumnFilesExistence(
         StorageUtils::getNodeIndexFName(databasePath, nodeTableSchema->tableID, dbFileType),
-        existence, containsOverflowFile(nodeTableSchema->getPrimaryKey().dataType.typeID));
+        existence,
+        containsOverflowFile(nodeTableSchema->getPrimaryKey().dataType.getLogicalTypeID()));
 }
 
 void BaseGraphTest::validateRelColumnAndListFilesExistence(
     RelTableSchema* relTableSchema, DBFileType dbFileType, bool existence) {
-    for (auto relDirection : REL_DIRECTIONS) {
+    for (auto relDirection : RelDataDirectionUtils::getRelDataDirections()) {
         if (relTableSchema->relMultiplicity) {
             validateColumnFilesExistence(StorageUtils::getAdjColumnFName(databasePath,
                                              relTableSchema->tableID, relDirection, dbFileType),
@@ -94,9 +95,9 @@ void BaseGraphTest::commitOrRollbackConnectionAndInitDBIfNecessary(
 }
 
 void BaseGraphTest::validateRelPropertyFiles(catalog::RelTableSchema* relTableSchema,
-    RelDirection relDirection, bool isColumnProperty, DBFileType dbFileType, bool existence) {
+    RelDataDirection relDirection, bool isColumnProperty, DBFileType dbFileType, bool existence) {
     for (auto& property : relTableSchema->properties) {
-        auto hasOverflow = containsOverflowFile(property.dataType.typeID);
+        auto hasOverflow = containsOverflowFile(property.dataType.getLogicalTypeID());
         if (isColumnProperty) {
             validateColumnFilesExistence(
                 StorageUtils::getRelPropertyColumnFName(databasePath, relTableSchema->tableID,

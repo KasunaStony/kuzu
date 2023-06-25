@@ -6,6 +6,7 @@
 
 #include "common/constants.h"
 #include "common/exception.h"
+#include "common/rel_direction.h"
 #include "common/types/types_include.h"
 
 namespace kuzu {
@@ -21,17 +22,17 @@ public:
     static constexpr std::string_view REL_TO_PROPERTY_NAME = "_TO_";
 
     // This constructor is needed for ser/deser functions
-    Property() : Property{"", common::DataType{}} {};
-    Property(std::string name, common::DataType dataType)
+    Property() : Property{"", common::LogicalType{}} {};
+    Property(std::string name, common::LogicalType dataType)
         : Property{std::move(name), std::move(dataType), common::INVALID_PROPERTY_ID,
               common::INVALID_TABLE_ID} {}
-    Property(std::string name, common::DataType dataType, common::property_id_t propertyID,
+    Property(std::string name, common::LogicalType dataType, common::property_id_t propertyID,
         common::table_id_t tableID)
         : name{std::move(name)}, dataType{std::move(dataType)},
           propertyID{propertyID}, tableID{tableID} {}
 
     std::string name;
-    common::DataType dataType;
+    common::LogicalType dataType;
     common::property_id_t propertyID;
     common::table_id_t tableID;
 };
@@ -47,7 +48,7 @@ public:
     virtual ~TableSchema() = default;
 
     static inline bool isReservedPropertyName(const std::string& propertyName) {
-        return propertyName == common::INTERNAL_ID_SUFFIX;
+        return propertyName == common::InternalKeyword::ID;
     }
 
     inline uint32_t getNumProperties() const { return properties.size(); }
@@ -65,7 +66,7 @@ public:
             [&propertyName](const Property& property) { return property.name == propertyName; });
     }
 
-    inline void addProperty(std::string propertyName, common::DataType dataType) {
+    inline void addProperty(std::string propertyName, common::LogicalType dataType) {
         properties.emplace_back(
             std::move(propertyName), std::move(dataType), increaseNextPropertyID(), tableID);
     }
@@ -131,16 +132,17 @@ public:
 
     inline Property& getRelIDDefinition() {
         for (auto& property : properties) {
-            if (property.name == common::INTERNAL_ID_SUFFIX) {
+            if (property.name == common::InternalKeyword::ID) {
                 return property;
             }
         }
         throw common::InternalException("Cannot find internal rel ID definition.");
     }
 
-    inline bool isSingleMultiplicityInDirection(common::RelDirection direction) const {
+    inline bool isSingleMultiplicityInDirection(common::RelDataDirection direction) const {
         return relMultiplicity == ONE_ONE ||
-               relMultiplicity == (direction == common::RelDirection::FWD ? MANY_ONE : ONE_MANY);
+               relMultiplicity ==
+                   (direction == common::RelDataDirection::FWD ? MANY_ONE : ONE_MANY);
     }
 
     inline uint32_t getNumUserDefinedProperties() const {
@@ -152,12 +154,12 @@ public:
         return srcTableID == tableID || dstTableID == tableID;
     }
 
-    inline common::table_id_t getBoundTableID(common::RelDirection relDirection) const {
-        return relDirection == common::RelDirection::FWD ? srcTableID : dstTableID;
+    inline common::table_id_t getBoundTableID(common::RelDataDirection relDirection) const {
+        return relDirection == common::RelDataDirection::FWD ? srcTableID : dstTableID;
     }
 
-    inline common::table_id_t getNbrTableID(common::RelDirection relDirection) const {
-        return relDirection == common::RelDirection::FWD ? dstTableID : srcTableID;
+    inline common::table_id_t getNbrTableID(common::RelDataDirection relDirection) const {
+        return relDirection == common::RelDataDirection::FWD ? dstTableID : srcTableID;
     }
 
     RelMultiplicity relMultiplicity;

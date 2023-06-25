@@ -1,8 +1,8 @@
 #include "parser/transformer.h"
 
 #include "common/copier_config/copier_config.h"
-#include "common/exception.h"
 #include "common/string_utils.h"
+#include "parser/call/call.h"
 #include "parser/copy.h"
 #include "parser/ddl/add_property.h"
 #include "parser/ddl/create_node_clause.h"
@@ -27,16 +27,7 @@ namespace kuzu {
 namespace parser {
 
 std::unique_ptr<Statement> Transformer::transform() {
-    std::unique_ptr<Statement> statement;
-    if (root.oC_Statement()) {
-        statement = transformQuery(*root.oC_Statement()->oC_Query());
-    } else if (root.kU_DDL()) {
-        statement = transformDDL(*root.kU_DDL());
-    } else if (root.kU_CopyNPY()) {
-        statement = transformCopyNPY(*root.kU_CopyNPY());
-    } else {
-        statement = transformCopyCSV(*root.kU_CopyCSV());
-    }
+    auto statement = transformOcStatement(*root.oC_Statement());
     if (root.oC_AnyCypherOption()) {
         auto cypherOption = root.oC_AnyCypherOption();
         if (cypherOption->oC_Explain()) {
@@ -47,6 +38,21 @@ std::unique_ptr<Statement> Transformer::transform() {
         }
     }
     return statement;
+}
+
+std::unique_ptr<Statement> Transformer::transformOcStatement(
+    CypherParser::OC_StatementContext& ctx) {
+    if (ctx.oC_Query()) {
+        return transformQuery(*ctx.oC_Query());
+    } else if (ctx.kU_DDL()) {
+        return transformDDL(*ctx.kU_DDL());
+    } else if (ctx.kU_CopyNPY()) {
+        return transformCopyNPY(*ctx.kU_CopyNPY());
+    } else if (ctx.kU_CopyCSV()) {
+        return transformCopyCSV(*ctx.kU_CopyCSV());
+    } else {
+        return transformCall(*ctx.kU_Call());
+    }
 }
 
 std::unique_ptr<RegularQuery> Transformer::transformQuery(CypherParser::OC_QueryContext& ctx) {
@@ -293,15 +299,27 @@ std::unique_ptr<RelPattern> Transformer::transformRelationshipPattern(
     if (relDetail->oC_RangeLiteral()) {
         lowerBound = relDetail->oC_RangeLiteral()->oC_IntegerLiteral()[0]->getText();
         upperBound = relDetail->oC_RangeLiteral()->oC_IntegerLiteral()[1]->getText();
-        relType = relDetail->oC_RangeLiteral()->SHORTEST() ? common::QueryRelType::SHORTEST :
-                                                             common::QueryRelType::VARIABLE_LENGTH;
+        if (relDetail->oC_RangeLiteral()->ALL()) {
+            relType = common::QueryRelType::ALL_SHORTEST;
+        } else if (relDetail->oC_RangeLiteral()->SHORTEST()) {
+            relType = common::QueryRelType::SHORTEST;
+        } else {
+            relType = common::QueryRelType::VARIABLE_LENGTH;
+        }
     }
-    auto arrowHead = ctx.oC_LeftArrowHead() ? ArrowDirection::LEFT : ArrowDirection::RIGHT;
+    ArrowDirection arrowDirection;
+    if (ctx.oC_LeftArrowHead()) {
+        arrowDirection = ArrowDirection::LEFT;
+    } else if (ctx.oC_RightArrowHead()) {
+        arrowDirection = ArrowDirection::RIGHT;
+    } else {
+        arrowDirection = ArrowDirection::BOTH;
+    }
     auto properties = relDetail->kU_Properties() ?
                           transformProperties(*relDetail->kU_Properties()) :
                           std::vector<std::pair<std::string, std::unique_ptr<ParsedExpression>>>{};
     return std::make_unique<RelPattern>(
-        variable, relTypes, relType, lowerBound, upperBound, arrowHead, std::move(properties));
+        variable, relTypes, relType, lowerBound, upperBound, arrowDirection, std::move(properties));
 }
 
 std::vector<std::pair<std::string, std::unique_ptr<ParsedExpression>>>
@@ -726,7 +744,8 @@ std::unique_ptr<ParsedExpression> Transformer::transformLiteral(
         return transformBooleanLiteral(*ctx.oC_BooleanLiteral());
     } else if (ctx.StringLiteral()) {
         return std::make_unique<ParsedLiteralExpression>(
-            std::make_unique<common::Value>(transformStringLiteral(*ctx.StringLiteral())),
+            std::make_unique<common::Value>(common::LogicalType{common::LogicalTypeID::STRING},
+                transformStringLiteral(*ctx.StringLiteral())),
             ctx.getText());
     } else if (ctx.NULL_()) {
         return std::make_unique<ParsedLiteralExpression>(
@@ -767,7 +786,13 @@ std::unique_ptr<ParsedExpression> Transformer::transformStructLiteral(
         std::make_unique<ParsedFunctionExpression>(common::STRUCT_PACK_FUNC_NAME, ctx.getText());
     for (auto& structField : ctx.kU_StructField()) {
         auto structExpr = transformExpression(*structField->oC_Expression());
-        structExpr->setAlias(transformSymbolicName(*structField->oC_SymbolicName()));
+        std::string alias;
+        if (structField->oC_Expression()) {
+            alias = transformSymbolicName(*structField->oC_SymbolicName());
+        } else {
+            alias = transformStringLiteral(*structField->StringLiteral());
+        }
+        structExpr->setAlias(alias);
         structPack->addChild(std::move(structExpr));
     }
     return structPack;
@@ -796,14 +821,23 @@ std::unique_ptr<ParsedExpression> Transformer::transformFunctionInvocation(
     }
     auto expression = std::make_unique<ParsedFunctionExpression>(
         functionName, ctx.getText(), ctx.DISTINCT() != nullptr);
-    for (auto& childExpr : ctx.oC_Expression()) {
-        expression->addChild(transformExpression(*childExpr));
+    for (auto& functionParameter : ctx.kU_FunctionParameter()) {
+        expression->addChild(transformFunctionParameterExpression(*functionParameter));
     }
     return expression;
 }
 
 std::string Transformer::transformFunctionName(CypherParser::OC_FunctionNameContext& ctx) {
     return transformSymbolicName(*ctx.oC_SymbolicName());
+}
+
+std::unique_ptr<ParsedExpression> Transformer::transformFunctionParameterExpression(
+    CypherParser::KU_FunctionParameterContext& ctx) {
+    auto expression = transformExpression(*ctx.oC_Expression());
+    if (ctx.oC_SymbolicName()) {
+        expression->setAlias(transformSymbolicName(*ctx.oC_SymbolicName()));
+    }
+    return expression;
 }
 
 std::unique_ptr<ParsedExpression> Transformer::transformExistentialSubquery(
@@ -901,7 +935,10 @@ std::string Transformer::transformSymbolicName(CypherParser::OC_SymbolicNameCont
     if (ctx.UnescapedSymbolicName()) {
         return ctx.UnescapedSymbolicName()->getText();
     } else if (ctx.EscapedSymbolicName()) {
-        return ctx.EscapedSymbolicName()->getText();
+        std::string escapedSymbolName = ctx.EscapedSymbolicName()->getText();
+        // escapedSymbolName symbol will be of form "`Some.Value`". Therefore, we need to sanitize
+        // it such that we don't store the symbol with escape character.
+        return escapedSymbolName.substr(1, escapedSymbolName.size() - 2);
     } else {
         assert(ctx.HexLetter());
         return ctx.HexLetter()->getText();
@@ -911,12 +948,12 @@ std::string Transformer::transformSymbolicName(CypherParser::OC_SymbolicNameCont
 std::unique_ptr<Statement> Transformer::transformDDL(CypherParser::KU_DDLContext& ctx) {
     if (ctx.kU_CreateNode()) {
         return transformCreateNodeClause(*ctx.kU_CreateNode());
-    } else if (root.kU_DDL()->kU_CreateRel()) {
-        return transformCreateRelClause(*root.kU_DDL()->kU_CreateRel());
-    } else if (root.kU_DDL()->kU_DropTable()) {
-        return transformDropTable(*root.kU_DDL()->kU_DropTable());
+    } else if (root.oC_Statement()->kU_DDL()->kU_CreateRel()) {
+        return transformCreateRelClause(*root.oC_Statement()->kU_DDL()->kU_CreateRel());
+    } else if (root.oC_Statement()->kU_DDL()->kU_DropTable()) {
+        return transformDropTable(*root.oC_Statement()->kU_DDL()->kU_DropTable());
     } else {
-        return transformAlterTable(*root.kU_DDL()->kU_AlterTable());
+        return transformAlterTable(*root.oC_Statement()->kU_DDL()->kU_AlterTable());
     }
 }
 
@@ -1037,6 +1074,12 @@ std::unique_ptr<Statement> Transformer::transformCopyNPY(CypherParser::KU_CopyNP
         std::move(parsingOptions), common::CopyDescription::FileType::NPY);
 }
 
+std::unique_ptr<Statement> Transformer::transformCall(CypherParser::KU_CallContext& ctx) {
+    auto optionName = transformSymbolicName(*ctx.oC_SymbolicName());
+    auto parameter = transformLiteral(*ctx.oC_Literal());
+    return std::make_unique<Call>(std::move(optionName), std::move(parameter));
+}
+
 std::vector<std::string> Transformer::transformFilePaths(
     std::vector<antlr4::tree::TerminalNode*> stringLiteral) {
     std::vector<std::string> csvFiles;
@@ -1058,7 +1101,7 @@ Transformer::transformParsingOptions(CypherParser::KU_ParsingOptionsContext& ctx
 
 std::string Transformer::transformStringLiteral(antlr4::tree::TerminalNode& stringLiteral) {
     auto str = stringLiteral.getText();
-    return str.substr(1, str.size() - 2);
+    return common::StringUtils::removeEscapedCharacters(str);
 }
 
 } // namespace parser

@@ -29,6 +29,7 @@ const std::string CAST_TO_FLOAT_FUNC_NAME = "TO_FLOAT";
 const std::string CAST_TO_INT64_FUNC_NAME = "TO_INT64";
 const std::string CAST_TO_INT32_FUNC_NAME = "TO_INT32";
 const std::string CAST_TO_INT16_FUNC_NAME = "TO_INT16";
+const std::string CAST_TO_BLOB_FUNC_NAME = "BLOB";
 
 // list
 const std::string LIST_CREATION_FUNC_NAME = "LIST_CREATION";
@@ -55,10 +56,29 @@ const std::string ARRAY_CONTAINS_FUNC_NAME = "ARRAY_CONTAINS";
 const std::string ARRAY_HAS_FUNC_NAME = "ARRAY_HAS";
 const std::string LIST_SLICE_FUNC_NAME = "LIST_SLICE";
 const std::string ARRAY_SLICE_FUNC_NAME = "ARRAY_SLICE";
+const std::string LIST_SUM_FUNC_NAME = "LIST_SUM";
+const std::string LIST_SORT_FUNC_NAME = "LIST_SORT";
+const std::string LIST_REVERSE_SORT_FUNC_NAME = "LIST_REVERSE_SORT";
+const std::string LIST_DISTINCT_FUNC_NAME = "LIST_DISTINCT";
+const std::string LIST_UNIQUE_FUNC_NAME = "LIST_UNIQUE";
+const std::string LIST_ANY_VALUE_FUNC_NAME = "LIST_ANY_VALUE";
 
 // struct
 const std::string STRUCT_PACK_FUNC_NAME = "STRUCT_PACK";
 const std::string STRUCT_EXTRACT_FUNC_NAME = "STRUCT_EXTRACT";
+
+// map
+const std::string MAP_CREATION_FUNC_NAME = "MAP";
+const std::string MAP_EXTRACT_FUNC_NAME = "MAP_EXTRACT";
+const std::string ELEMENT_AT_FUNC_NAME = "ELEMENT_AT"; // alias of MAP_EXTRACT
+const std::string CARDINALITY_FUNC_NAME = "CARDINALITY";
+const std::string MAP_KEYS_FUNC_NAME = "MAP_KEYS";
+const std::string MAP_VALUES_FUNC_NAME = "MAP_VALUES";
+
+// union
+const std::string UNION_VALUE_FUNC_NAME = "UNION_VALUE";
+const std::string UNION_TAG_FUNC_NAME = "UNION_TAG";
+const std::string UNION_EXTRACT_FUNC_NAME = "UNION_EXTRACT";
 
 // comparison
 const std::string EQUALS_FUNC_NAME = "EQUALS";
@@ -173,6 +193,13 @@ const std::string TO_MICROSECONDS_FUNC_NAME = "TO_MICROSECONDS";
 const std::string ID_FUNC_NAME = "ID";
 const std::string LABEL_FUNC_NAME = "LABEL";
 const std::string OFFSET_FUNC_NAME = "OFFSET";
+const std::string NODES_FUNC_NAME = "NODES";
+const std::string RELS_FUNC_NAME = "RELS";
+
+// Blob functions
+const std::string OCTET_LENGTH_FUNC_NAME = "OCTET_LENGTH";
+const std::string ENCODE_FUNC_NAME = "ENCODE";
+const std::string DECODE_FUNC_NAME = "DECODE";
 
 enum ExpressionType : uint8_t {
 

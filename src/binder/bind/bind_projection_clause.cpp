@@ -16,7 +16,7 @@ std::unique_ptr<BoundWithClause> Binder::bindWithClause(const WithClause& withCl
         projectionBody->getIsDistinct(), std::move(boundProjectionExpressions));
     bindOrderBySkipLimitIfNecessary(*boundProjectionBody, *projectionBody);
     validateOrderByFollowedBySkipOrLimitInWithClause(*boundProjectionBody);
-    variablesInScope.clear();
+    variableScope->clear();
     addExpressionsToScope(boundProjectionBody->getProjectionExpressions());
     auto boundWithClause = std::make_unique<BoundWithClause>(std::move(boundProjectionBody));
     if (withClause.hasWhereExpression()) {
@@ -32,7 +32,8 @@ std::unique_ptr<BoundReturnClause> Binder::bindReturnClause(const ReturnClause& 
     auto statementResult = std::make_unique<BoundStatementResult>();
     for (auto& expression : boundProjectionExpressions) {
         auto dataType = expression->getDataType();
-        if (dataType.typeID == common::NODE || dataType.typeID == common::REL) {
+        if (dataType.getLogicalTypeID() == common::LogicalTypeID::NODE ||
+            dataType.getLogicalTypeID() == common::LogicalTypeID::REL) {
             statementResult->addColumn(expression, rewriteNodeOrRelExpression(*expression));
         } else {
             statementResult->addColumn(expression, expression_vector{expression});
@@ -53,11 +54,11 @@ expression_vector Binder::bindProjectionExpressions(
         boundProjectionExpressions.push_back(expressionBinder.bindExpression(*expression));
     }
     if (containsStar) {
-        if (variablesInScope.empty()) {
+        if (variableScope->empty()) {
             throw BinderException(
                 "RETURN or WITH * is not allowed when there are no variables in scope.");
         }
-        for (auto& [name, expression] : variablesInScope) {
+        for (auto& expression : variableScope->getExpressions()) {
             boundProjectionExpressions.push_back(expression);
         }
     }
@@ -67,10 +68,10 @@ expression_vector Binder::bindProjectionExpressions(
 }
 
 expression_vector Binder::rewriteNodeOrRelExpression(const Expression& expression) {
-    if (expression.dataType.typeID == common::NODE) {
+    if (expression.dataType.getLogicalTypeID() == common::LogicalTypeID::NODE) {
         return rewriteNodeExpression(expression);
     } else {
-        assert(expression.dataType.typeID == common::REL);
+        assert(expression.dataType.getLogicalTypeID() == common::LogicalTypeID::REL);
         return rewriteRelExpression(expression);
     }
 }
@@ -79,7 +80,7 @@ expression_vector Binder::rewriteNodeExpression(const kuzu::binder::Expression& 
     expression_vector result;
     auto& node = (NodeExpression&)expression;
     result.push_back(node.getInternalIDProperty());
-    result.push_back(expressionBinder.bindNodeLabelFunction(node));
+    result.push_back(expressionBinder.bindLabelFunction(node));
     for (auto& property : node.getPropertyExpressions()) {
         result.push_back(property->copy());
     }
@@ -91,7 +92,7 @@ expression_vector Binder::rewriteRelExpression(const Expression& expression) {
     auto& rel = (RelExpression&)expression;
     result.push_back(rel.getSrcNode()->getInternalIDProperty());
     result.push_back(rel.getDstNode()->getInternalIDProperty());
-    result.push_back(expressionBinder.bindRelLabelFunction(rel));
+    result.push_back(expressionBinder.bindLabelFunction(rel));
     for (auto& property : rel.getPropertyExpressions()) {
         result.push_back(property->copy());
     }
@@ -138,7 +139,8 @@ expression_vector Binder::bindOrderByExpressions(
     expression_vector boundOrderByExpressions;
     for (auto& expression : orderByExpressions) {
         auto boundExpression = expressionBinder.bindExpression(*expression);
-        if (boundExpression->dataType.typeID == NODE || boundExpression->dataType.typeID == REL) {
+        if (boundExpression->dataType.getLogicalTypeID() == LogicalTypeID::NODE ||
+            boundExpression->dataType.getLogicalTypeID() == LogicalTypeID::REL) {
             throw BinderException("Cannot order by " + boundExpression->toString() +
                                   ". Order by node or rel is not supported.");
         }
@@ -153,7 +155,8 @@ uint64_t Binder::bindSkipLimitExpression(const ParsedExpression& expression) {
     // We currently do not support the number of rows to skip/limit written as an expression (eg.
     // SKIP 3 + 2 is not supported).
     if (expression.getExpressionType() != LITERAL ||
-        ((LiteralExpression&)(*boundExpression)).getDataType().typeID != INT64) {
+        ((LiteralExpression&)(*boundExpression)).getDataType().getLogicalTypeID() !=
+            LogicalTypeID::INT64) {
         throw BinderException("The number of rows to skip/limit must be a non-negative integer.");
     }
     return ((LiteralExpression&)(*boundExpression)).value->getValue<int64_t>();
@@ -163,14 +166,14 @@ void Binder::addExpressionsToScope(const expression_vector& projectionExpression
     for (auto& expression : projectionExpressions) {
         // In RETURN clause, if expression is not aliased, its input name will serve its alias.
         auto alias = expression->hasAlias() ? expression->getAlias() : expression->toString();
-        variablesInScope.insert({alias, expression});
+        variableScope->addExpression(alias, expression);
     }
 }
 
 void Binder::resolveAnyDataTypeWithDefaultType(const expression_vector& expressions) {
     for (auto& expression : expressions) {
-        if (expression->dataType.typeID == ANY) {
-            ExpressionBinder::implicitCastIfNecessary(expression, STRING);
+        if (expression->dataType.getLogicalTypeID() == LogicalTypeID::ANY) {
+            ExpressionBinder::implicitCastIfNecessary(expression, LogicalTypeID::STRING);
         }
     }
 }

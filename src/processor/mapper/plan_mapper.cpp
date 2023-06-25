@@ -11,12 +11,15 @@ using namespace kuzu::planner;
 namespace kuzu {
 namespace processor {
 
-std::unique_ptr<PhysicalPlan> PlanMapper::mapLogicalPlanToPhysical(LogicalPlan* logicalPlan,
-    const binder::expression_vector& expressionsToCollect, common::StatementType statementType) {
+std::unique_ptr<PhysicalPlan> PlanMapper::mapLogicalPlanToPhysical(
+    LogicalPlan* logicalPlan, const binder::expression_vector& expressionsToCollect) {
     auto lastOperator = mapLogicalOperatorToPhysical(logicalPlan->getLastOperator());
-    if (!StatementTypeUtils::isCopyCSV(statementType)) {
+    // We have a special code path for executing copy rel and copy npy, so we don't need to append
+    // the resultCollector.
+    if (lastOperator->getOperatorType() != PhysicalOperatorType::COPY_REL &&
+        lastOperator->getOperatorType() != PhysicalOperatorType::COPY_NPY) {
         lastOperator = appendResultCollector(
-            expressionsToCollect, *logicalPlan->getSchema(), std::move(lastOperator));
+            expressionsToCollect, logicalPlan->getSchema(), std::move(lastOperator));
     }
     return make_unique<PhysicalPlan>(std::move(lastOperator));
 }
@@ -26,6 +29,9 @@ std::unique_ptr<PhysicalOperator> PlanMapper::mapLogicalOperatorToPhysical(
     std::unique_ptr<PhysicalOperator> physicalOperator;
     auto operatorType = logicalOperator->getOperatorType();
     switch (operatorType) {
+    case LogicalOperatorType::SCAN_FRONTIER: {
+        physicalOperator = mapLogicalScanFrontierToPhysical(logicalOperator.get());
+    } break;
     case LogicalOperatorType::SCAN_NODE: {
         physicalOperator = mapLogicalScanNodeToPhysical(logicalOperator.get());
     } break;
@@ -40,6 +46,9 @@ std::unique_ptr<PhysicalOperator> PlanMapper::mapLogicalOperatorToPhysical(
     } break;
     case LogicalOperatorType::RECURSIVE_EXTEND: {
         physicalOperator = mapLogicalRecursiveExtendToPhysical(logicalOperator.get());
+    } break;
+    case LogicalOperatorType::PATH_PROPERTY_PROBE: {
+        physicalOperator = mapLogicalPathPropertyProbeToPhysical(logicalOperator.get());
     } break;
     case LogicalOperatorType::FLATTEN: {
         physicalOperator = mapLogicalFlattenToPhysical(logicalOperator.get());
@@ -137,6 +146,9 @@ std::unique_ptr<PhysicalOperator> PlanMapper::mapLogicalOperatorToPhysical(
     case LogicalOperatorType::RENAME_PROPERTY: {
         physicalOperator = mapLogicalRenamePropertyToPhysical(logicalOperator.get());
     } break;
+    case LogicalOperatorType::CALL: {
+        physicalOperator = mapLogicalCallToPhysical(logicalOperator.get());
+    } break;
     default:
         throw common::NotImplementedException("PlanMapper::mapLogicalOperatorToPhysical()");
     }
@@ -145,20 +157,29 @@ std::unique_ptr<PhysicalOperator> PlanMapper::mapLogicalOperatorToPhysical(
 }
 
 std::unique_ptr<ResultCollector> PlanMapper::appendResultCollector(
-    const binder::expression_vector& expressionsToCollect, const Schema& schema,
+    const binder::expression_vector& expressionsToCollect, Schema* schema,
     std::unique_ptr<PhysicalOperator> prevOperator) {
-    std::vector<std::pair<DataPos, DataType>> payloadsPosAndType;
-    std::vector<bool> isPayloadFlat;
+    bool hasUnFlatColumn = false;
+    std::vector<DataPos> payloadsPos;
+    auto tableSchema = std::make_unique<FactorizedTableSchema>();
     for (auto& expression : expressionsToCollect) {
-        auto expressionName = expression->getUniqueName();
-        auto dataPos = DataPos(schema.getExpressionPos(*expression));
-        auto isFlat = schema.getGroup(expressionName)->isFlat();
-        payloadsPosAndType.emplace_back(dataPos, expression->dataType);
-        isPayloadFlat.push_back(isFlat);
+        auto dataPos = DataPos(schema->getExpressionPos(*expression));
+        std::unique_ptr<ColumnSchema> columnSchema;
+        if (schema->getGroup(dataPos.dataChunkPos)->isFlat()) {
+            columnSchema = std::make_unique<ColumnSchema>(false /* isUnFlat */,
+                dataPos.dataChunkPos, LogicalTypeUtils::getRowLayoutSize(expression->dataType));
+        } else {
+            columnSchema = std::make_unique<ColumnSchema>(
+                true /* isUnFlat */, dataPos.dataChunkPos, (uint32_t)sizeof(overflow_value_t));
+            hasUnFlatColumn = true;
+        }
+        tableSchema->appendColumn(std::move(columnSchema));
+        payloadsPos.push_back(dataPos);
     }
-    auto sharedState = std::make_shared<FTableSharedState>();
+    auto sharedState = std::make_shared<FTableSharedState>(
+        memoryManager, tableSchema->copy(), hasUnFlatColumn ? 1 : common::DEFAULT_VECTOR_CAPACITY);
     return make_unique<ResultCollector>(std::make_unique<ResultSetDescriptor>(schema),
-        payloadsPosAndType, isPayloadFlat, sharedState, std::move(prevOperator), getOperatorID(),
+        tableSchema->copy(), payloadsPos, sharedState, std::move(prevOperator), getOperatorID(),
         binder::ExpressionUtil::toString(expressionsToCollect));
 }
 

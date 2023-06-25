@@ -2,6 +2,7 @@
 
 #include "binder/expression/node_expression.h"
 #include "common/statement_type.h"
+#include "planner/logical_plan/logical_operator/logical_copy.h"
 #include "planner/logical_plan/logical_plan.h"
 #include "processor/mapper/expression_mapper.h"
 #include "processor/operator/result_collector.h"
@@ -12,7 +13,7 @@
 namespace kuzu {
 namespace processor {
 
-struct BuildDataInfo;
+struct HashJoinBuildInfo;
 struct AggregateInputInfo;
 
 class PlanMapper {
@@ -23,12 +24,14 @@ public:
         : storageManager{storageManager}, memoryManager{memoryManager},
           expressionMapper{}, catalog{catalog}, physicalOperatorID{0} {}
 
-    std::unique_ptr<PhysicalPlan> mapLogicalPlanToPhysical(planner::LogicalPlan* logicalPlan,
-        const binder::expression_vector& expressionsToCollect, common::StatementType statementType);
+    std::unique_ptr<PhysicalPlan> mapLogicalPlanToPhysical(
+        planner::LogicalPlan* logicalPlan, const binder::expression_vector& expressionsToCollect);
 
 private:
     std::unique_ptr<PhysicalOperator> mapLogicalOperatorToPhysical(
         const std::shared_ptr<planner::LogicalOperator>& logicalOperator);
+    std::unique_ptr<PhysicalOperator> mapLogicalScanFrontierToPhysical(
+        planner::LogicalOperator* logicalOperator);
     std::unique_ptr<PhysicalOperator> mapLogicalScanNodeToPhysical(
         planner::LogicalOperator* logicalOperator);
     std::unique_ptr<PhysicalOperator> mapLogicalIndexScanNodeToPhysical(
@@ -38,6 +41,8 @@ private:
     std::unique_ptr<PhysicalOperator> mapLogicalExtendToPhysical(
         planner::LogicalOperator* logicalOperator);
     std::unique_ptr<PhysicalOperator> mapLogicalRecursiveExtendToPhysical(
+        planner::LogicalOperator* logicalOperator);
+    std::unique_ptr<PhysicalOperator> mapLogicalPathPropertyProbeToPhysical(
         planner::LogicalOperator* logicalOperator);
     std::unique_ptr<PhysicalOperator> mapLogicalFlattenToPhysical(
         planner::LogicalOperator* logicalOperator);
@@ -93,6 +98,8 @@ private:
         planner::LogicalOperator* logicalOperator);
     std::unique_ptr<PhysicalOperator> mapLogicalCopyToPhysical(
         planner::LogicalOperator* logicalOperator);
+    std::unique_ptr<PhysicalOperator> mapLogicalCopyNodeToPhysical(planner::LogicalCopy* copy);
+    std::unique_ptr<PhysicalOperator> mapLogicalCopyRelToPhysical(planner::LogicalCopy* copy);
     std::unique_ptr<PhysicalOperator> mapLogicalDropTableToPhysical(
         planner::LogicalOperator* logicalOperator);
     std::unique_ptr<PhysicalOperator> mapLogicalRenameTableToPhysical(
@@ -103,13 +110,15 @@ private:
         planner::LogicalOperator* logicalOperator);
     std::unique_ptr<PhysicalOperator> mapLogicalRenamePropertyToPhysical(
         planner::LogicalOperator* logicalOperator);
+    std::unique_ptr<PhysicalOperator> mapLogicalCallToPhysical(
+        planner::LogicalOperator* logicalOperator);
     std::unique_ptr<ResultCollector> appendResultCollector(
-        const binder::expression_vector& expressionsToCollect, const planner::Schema& schema,
+        const binder::expression_vector& expressionsToCollect, planner::Schema* schema,
         std::unique_ptr<PhysicalOperator> prevOperator);
 
     inline uint32_t getOperatorID() { return physicalOperatorID++; }
 
-    BuildDataInfo generateBuildDataInfo(const planner::Schema& buildSideSchema,
+    std::unique_ptr<HashJoinBuildInfo> createHashBuildInfo(const planner::Schema& buildSideSchema,
         const binder::expression_vector& keys, const binder::expression_vector& payloads);
 
     std::unique_ptr<PhysicalOperator> createHashAggregate(
@@ -117,11 +126,11 @@ private:
         const binder::expression_vector& dependentKeyExpressions,
         std::vector<std::unique_ptr<function::AggregateFunction>> aggregateFunctions,
         std::vector<std::unique_ptr<AggregateInputInfo>> aggregateInputInfos,
-        std::vector<DataPos> aggregatesOutputPos, const planner::Schema& inSchema,
-        const planner::Schema& outSchema, std::unique_ptr<PhysicalOperator> prevOperator,
+        std::vector<DataPos> aggregatesOutputPos, planner::Schema* inSchema,
+        planner::Schema* outSchema, std::unique_ptr<PhysicalOperator> prevOperator,
         const std::string& paramsString);
 
-    static void mapAccHashJoin(PhysicalOperator* probe);
+    static void mapSIPJoin(PhysicalOperator* probe);
 
     static std::vector<DataPos> getExpressionsDataPos(
         const binder::expression_vector& expressions, const planner::Schema& schema);

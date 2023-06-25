@@ -12,10 +12,10 @@ namespace binder {
 
 std::unique_ptr<BoundStatement> Binder::bind(const Statement& statement) {
     switch (statement.getStatementType()) {
-    case StatementType::CREATE_NODE_TABLE_CLAUSE: {
+    case StatementType::CREATE_NODE_TABLE: {
         return bindCreateNodeTableClause(statement);
     }
-    case StatementType::CREATE_REL_TABLE_CLAUSE: {
+    case StatementType::CREATE_REL_TABLE: {
         return bindCreateRelTableClause(statement);
     }
     case StatementType::COPY: {
@@ -39,6 +39,9 @@ std::unique_ptr<BoundStatement> Binder::bind(const Statement& statement) {
     case StatementType::QUERY: {
         return bindQuery((const RegularQuery&)statement);
     }
+    case StatementType::CALL: {
+        return bindCallClause(statement);
+    }
     default:
         assert(false);
     }
@@ -46,7 +49,7 @@ std::unique_ptr<BoundStatement> Binder::bind(const Statement& statement) {
 
 std::shared_ptr<Expression> Binder::bindWhereExpression(const ParsedExpression& parsedExpression) {
     auto whereExpression = expressionBinder.bindExpression(parsedExpression);
-    ExpressionBinder::implicitCastIfNecessary(whereExpression, BOOL);
+    ExpressionBinder::implicitCastIfNecessary(whereExpression, LogicalTypeID::BOOL);
     return whereExpression;
 }
 
@@ -65,15 +68,15 @@ table_id_t Binder::bindNodeTableID(const std::string& tableName) const {
 }
 
 std::shared_ptr<Expression> Binder::createVariable(
-    const std::string& name, const DataType& dataType) {
-    if (variablesInScope.contains(name)) {
+    const std::string& name, const LogicalType& dataType) {
+    if (variableScope->contains(name)) {
         throw BinderException("Variable " + name + " already exists.");
     }
     auto uniqueName = getUniqueExpressionName(name);
-    auto variable = make_shared<VariableExpression>(dataType, uniqueName, name);
-    variable->setAlias(name);
-    variablesInScope.insert({name, variable});
-    return variable;
+    auto expression = expressionBinder.createVariableExpression(dataType, uniqueName, name);
+    expression->setAlias(name);
+    variableScope->addExpression(name, expression);
+    return expression;
 }
 
 void Binder::validateFirstMatchIsNotOptional(const SingleQuery& singleQuery) {
@@ -124,8 +127,8 @@ void Binder::validateUnionColumnsOfTheSameType(
         // Check whether the dataTypes in union expressions are exactly the same in each single
         // query.
         for (auto j = 0u; j < expressionsToProject.size(); j++) {
-            ExpressionBinder::validateExpectedDataType(
-                *expressionsToProjectToCheck[j], expressionsToProject[j]->dataType.typeID);
+            ExpressionBinder::validateExpectedDataType(*expressionsToProjectToCheck[j],
+                expressionsToProject[j]->dataType.getLogicalTypeID());
         }
     }
 }
@@ -191,13 +194,12 @@ std::string Binder::getUniqueExpressionName(const std::string& name) {
     return "_" + std::to_string(lastExpressionId++) + "_" + name;
 }
 
-std::unordered_map<std::string, std::shared_ptr<Expression>> Binder::enterSubquery() {
-    return variablesInScope;
+std::unique_ptr<VariableScope> Binder::enterSubquery() {
+    return variableScope->copy();
 }
 
-void Binder::exitSubquery(
-    std::unordered_map<std::string, std::shared_ptr<Expression>> prevVariablesInScope) {
-    variablesInScope = std::move(prevVariablesInScope);
+void Binder::exitSubquery(std::unique_ptr<VariableScope> prevVariableScope) {
+    variableScope = std::move(prevVariableScope);
 }
 
 } // namespace binder

@@ -16,15 +16,17 @@ struct ListPosition {
     static inline void operation(common::list_entry_t& list, T& element, int64_t& result,
         common::ValueVector& listVector, common::ValueVector& elementVector,
         common::ValueVector& resultVector) {
-        if (*listVector.dataType.getChildType() != elementVector.dataType) {
+        if (*common::VarListType::getChildType(&listVector.dataType) != elementVector.dataType) {
             result = 0;
             return;
         }
         auto listElements =
             reinterpret_cast<T*>(common::ListVector::getListValues(&listVector, list));
+        uint8_t comparisonResult;
         for (auto i = 0u; i < list.size; i++) {
-            if (common::TypeUtils::isValueEqual(listElements[i], element, nullptr /* leftVector */,
-                    nullptr /* rightVector */)) {
+            Equals::operation(listElements[i], element, comparisonResult,
+                common::ListVector::getDataVector(&listVector), &elementVector);
+            if (comparisonResult) {
                 result = i + 1;
                 return;
             }
@@ -32,26 +34,6 @@ struct ListPosition {
         result = 0;
     }
 };
-
-template<>
-void ListPosition::operation(common::list_entry_t& list, common::list_entry_t& element,
-    int64_t& result, common::ValueVector& listVector, common::ValueVector& elementVector,
-    common::ValueVector& resultVector) {
-    if (*listVector.dataType.getChildType() != elementVector.dataType) {
-        result = 0;
-        return;
-    }
-    auto listElements = reinterpret_cast<common::list_entry_t*>(
-        common::ListVector::getListValues(&listVector, list));
-    for (auto i = 0u; i < list.size; i++) {
-        if (common::TypeUtils::isValueEqual(listElements[i], element,
-                common::ListVector::getDataVector(&listVector), &elementVector)) {
-            result = i + 1;
-            return;
-        }
-    }
-    result = 0;
-}
 
 } // namespace operation
 } // namespace function

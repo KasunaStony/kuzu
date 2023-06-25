@@ -19,6 +19,8 @@ public:
 
     std::shared_ptr<Expression> bindExpression(const parser::ParsedExpression& parsedExpression);
 
+    static void resolveAnyDataType(Expression& expression, const common::LogicalType& targetType);
+
 private:
     std::shared_ptr<Expression> bindBooleanExpression(
         const parser::ParsedExpression& parsedExpression);
@@ -44,6 +46,7 @@ private:
 
     std::shared_ptr<Expression> bindFunctionExpression(
         const parser::ParsedExpression& parsedExpression);
+
     std::shared_ptr<Expression> bindScalarFunctionExpression(
         const parser::ParsedExpression& parsedExpression, const std::string& functionName);
     std::shared_ptr<Expression> bindScalarFunctionExpression(
@@ -51,18 +54,16 @@ private:
     std::shared_ptr<Expression> bindAggregateFunctionExpression(
         const parser::ParsedExpression& parsedExpression, const std::string& functionName,
         bool isDistinct);
-
     std::shared_ptr<Expression> staticEvaluate(
         const std::string& functionName, const expression_vector& children);
 
-    std::shared_ptr<Expression> bindInternalIDExpression(
-        const parser::ParsedExpression& parsedExpression);
-    std::shared_ptr<Expression> bindInternalIDExpression(const Expression& expression);
+    std::shared_ptr<Expression> rewriteFunctionExpression(
+        const parser::ParsedExpression& parsedExpression, const std::string& functionName);
     std::unique_ptr<Expression> createInternalNodeIDExpression(const Expression& node);
-    std::shared_ptr<Expression> createInternalLengthExpression(const Expression& rel);
-    std::shared_ptr<Expression> bindLabelFunction(const parser::ParsedExpression& parsedExpression);
-    std::shared_ptr<Expression> bindNodeLabelFunction(const Expression& expression);
-    std::shared_ptr<Expression> bindRelLabelFunction(const Expression& expression);
+    std::shared_ptr<Expression> bindInternalIDExpression(std::shared_ptr<Expression> expression);
+    std::shared_ptr<Expression> bindLabelFunction(const Expression& expression);
+    std::unique_ptr<Expression> createInternalLengthExpression(const Expression& expression);
+    std::shared_ptr<Expression> bindRecursiveJoinLengthFunction(const Expression& expression);
 
     std::shared_ptr<Expression> bindParameterExpression(
         const parser::ParsedExpression& parsedExpression);
@@ -74,6 +75,8 @@ private:
 
     std::shared_ptr<Expression> bindVariableExpression(
         const parser::ParsedExpression& parsedExpression);
+    std::shared_ptr<Expression> createVariableExpression(
+        common::LogicalType logicalType, std::string uniqueName, std::string name);
 
     std::shared_ptr<Expression> bindExistentialSubqueryExpression(
         const parser::ParsedExpression& parsedExpression);
@@ -88,19 +91,19 @@ private:
     // not specify its child type.
     // For the rest, i.e. set clause binding, we cast with data type. For example, a.list = $1.
     static std::shared_ptr<Expression> implicitCastIfNecessary(
-        const std::shared_ptr<Expression>& expression, const common::DataType& targetType);
+        const std::shared_ptr<Expression>& expression, const common::LogicalType& targetType);
     static std::shared_ptr<Expression> implicitCastIfNecessary(
-        const std::shared_ptr<Expression>& expression, common::DataTypeID targetTypeID);
-    static void resolveAnyDataType(Expression& expression, const common::DataType& targetType);
+        const std::shared_ptr<Expression>& expression, common::LogicalTypeID targetTypeID);
     static std::shared_ptr<Expression> implicitCast(
-        const std::shared_ptr<Expression>& expression, const common::DataType& targetType);
+        const std::shared_ptr<Expression>& expression, const common::LogicalType& targetType);
 
     /****** validation *****/
-    static void validateExpectedDataType(const Expression& expression, common::DataTypeID target) {
-        validateExpectedDataType(expression, std::unordered_set<common::DataTypeID>{target});
+    static void validateExpectedDataType(
+        const Expression& expression, common::LogicalTypeID target) {
+        validateExpectedDataType(expression, std::vector<common::LogicalTypeID>{target});
     }
     static void validateExpectedDataType(
-        const Expression& expression, const std::unordered_set<common::DataTypeID>& targets);
+        const Expression& expression, const std::vector<common::LogicalTypeID>& targets);
     // E.g. SUM(SUM(a.age)) is not allowed
     static void validateAggregationExpressionIsNotNested(const Expression& expression);
 

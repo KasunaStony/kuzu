@@ -16,6 +16,7 @@ class Connection {
     friend class kuzu::testing::ApiTest;
     friend class kuzu::testing::BaseGraphTest;
     friend class kuzu::testing::TestHelper;
+    friend class kuzu::testing::TestRunner;
     friend class kuzu::benchmark::Benchmark;
 
 public:
@@ -128,7 +129,7 @@ public:
     KUZU_API std::string getRelPropertyNames(const std::string& relTableName);
 
     /**
-     * @brief interrupts all queries currently executed within this connection.
+     * @brief interrupts all queries currently executing within this connection.
      */
     KUZU_API void interrupt();
 
@@ -137,6 +138,12 @@ public:
      * disables the timeout.
      */
     KUZU_API void setQueryTimeOut(uint64_t timeoutInMS);
+
+    /**
+     * @brief gets the query timeout value of the current connection. A value of zero (the default)
+     * disables the timeout.
+     */
+    KUZU_API uint64_t getQueryTimeOut();
 
 protected:
     ConnectionTransactionMode getTransactionMode();
@@ -161,7 +168,8 @@ protected:
 
     void beginTransactionNoLock(transaction::TransactionType type);
 
-    void commitOrRollbackNoLock(bool isCommit, bool skipCheckpointForTesting = false);
+    void commitOrRollbackNoLock(
+        transaction::TransactionAction action, bool skipCheckpointForTesting = false);
 
     std::unique_ptr<QueryResult> queryResultWithError(std::string& errMsg);
 

@@ -20,11 +20,23 @@ std::string PhysicalOperatorUtils::operatorTypeToString(PhysicalOperatorType ope
     case PhysicalOperatorType::AGGREGATE_SCAN: {
         return "AGGREGATE_SCAN";
     }
+    case PhysicalOperatorType::CALL: {
+        return "CALL";
+    }
     case PhysicalOperatorType::COPY_NODE: {
         return "COPY_NODE";
     }
+    case PhysicalOperatorType::COPY_NPY: {
+        return "COPY_NPY";
+    }
     case PhysicalOperatorType::COPY_REL: {
         return "COPY_REL";
+    }
+    case PhysicalOperatorType::READ_CSV: {
+        return "READ_CSV";
+    }
+    case PhysicalOperatorType::READ_PARQUET: {
+        return "READ_PARQUET";
     }
     case PhysicalOperatorType::CREATE_NODE: {
         return "CREATE_NODE";
@@ -85,6 +97,9 @@ std::string PhysicalOperatorUtils::operatorTypeToString(PhysicalOperatorType ope
     }
     case PhysicalOperatorType::MULTIPLICITY_REDUCER: {
         return "MULTIPLICITY_REDUCER";
+    }
+    case PhysicalOperatorType::PATH_PROPERTY_PROBE: {
+        return "PATH_PROPERTY_PROBE";
     }
     case PhysicalOperatorType::PROJECTION: {
         return "PROJECTION";

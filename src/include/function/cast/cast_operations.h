@@ -3,7 +3,6 @@
 #include <cassert>
 
 #include "common/exception.h"
-#include "common/in_mem_overflow_buffer_utils.h"
 #include "common/type_utils.h"
 #include "common/vector/value_vector.h"
 
@@ -31,7 +30,7 @@ struct CastStringToInterval {
 
 struct CastToString {
     template<typename T>
-    static inline std::string castToStringWithDataType(
+    static inline std::string castToStringWithVector(
         T& input, const common::ValueVector& inputVector) {
         return common::TypeUtils::toString(input);
     }
@@ -39,7 +38,7 @@ struct CastToString {
     template<typename T>
     static inline void operation(T& input, common::ku_string_t& result,
         common::ValueVector& inputVector, common::ValueVector& resultVector) {
-        std::string resultStr = castToStringWithDataType(input, inputVector);
+        std::string resultStr = castToStringWithVector(input, inputVector);
         if (resultStr.length() > common::ku_string_t::SHORT_STR_LENGTH) {
             result.overflowPtr = reinterpret_cast<uint64_t>(
                 common::StringVector::getInMemOverflowBuffer(&resultVector)
@@ -49,9 +48,39 @@ struct CastToString {
     }
 };
 
+struct CastToBlob {
+    static inline void operation(common::ku_string_t& input, common::blob_t& result,
+        common::ValueVector& inputVector, common::ValueVector& resultVector) {
+        result.value.len = common::Blob::getBlobSize(input);
+        if (!common::ku_string_t::isShortString(result.value.len)) {
+            auto overflowBuffer = common::StringVector::getInMemOverflowBuffer(&resultVector);
+            auto overflowPtr = overflowBuffer->allocateSpace(result.value.len);
+            result.value.overflowPtr = reinterpret_cast<int64_t>(overflowPtr);
+            common::Blob::fromString(
+                reinterpret_cast<const char*>(input.getData()), input.len, overflowPtr);
+            memcpy(result.value.prefix, overflowPtr, common::ku_string_t::PREFIX_LENGTH);
+        } else {
+            common::Blob::fromString(
+                reinterpret_cast<const char*>(input.getData()), input.len, result.value.prefix);
+        }
+    }
+};
+
+struct CastDateToTimestamp {
+    static inline void operation(common::date_t& input, common::timestamp_t& result) {
+        result = common::Timestamp::FromDatetime(input, common::dtime_t{});
+    }
+};
+
 template<>
-inline std::string CastToString::castToStringWithDataType(
+inline std::string CastToString::castToStringWithVector(
     common::list_entry_t& input, const common::ValueVector& inputVector) {
+    return common::TypeUtils::toString(input, (void*)&inputVector);
+}
+
+template<>
+inline std::string CastToString::castToStringWithVector(
+    common::struct_entry_t& input, const common::ValueVector& inputVector) {
     return common::TypeUtils::toString(input, (void*)&inputVector);
 }
 

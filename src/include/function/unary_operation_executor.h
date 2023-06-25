@@ -28,6 +28,15 @@ struct UnaryStringOperationWrapper {
     }
 };
 
+struct UnaryListOperationWrapper {
+    template<typename OPERAND_TYPE, typename RESULT_TYPE, typename FUNC>
+    static inline void operation(
+        OPERAND_TYPE& input, RESULT_TYPE& result, void* leftValueVector, void* resultValueVector) {
+        FUNC::operation(input, result, *(common::ValueVector*)leftValueVector,
+            *(common::ValueVector*)resultValueVector);
+    }
+};
+
 struct UnaryCastOperationWrapper {
     template<typename OPERAND_TYPE, typename RESULT_TYPE, typename FUNC>
     static void operation(
@@ -48,7 +57,7 @@ struct UnaryOperationExecutor {
 
     template<typename OPERAND_TYPE, typename RESULT_TYPE, typename FUNC, typename OP_WRAPPER>
     static void executeSwitch(common::ValueVector& operand, common::ValueVector& result) {
-        common::StringVector::resetOverflowBuffer(&result);
+        result.resetAuxiliaryBuffer();
         auto resultValues = (RESULT_TYPE*)result.getData();
         if (operand.state->isFlat()) {
             auto inputPos = operand.state->selVector->selectedPositions[0];
@@ -104,6 +113,11 @@ struct UnaryOperationExecutor {
     static void executeString(common::ValueVector& operand, common::ValueVector& result) {
         executeSwitch<OPERAND_TYPE, RESULT_TYPE, FUNC, UnaryStringOperationWrapper>(
             operand, result);
+    }
+
+    template<typename OPERAND_TYPE, typename RESULT_TYPE, typename FUNC>
+    static void executeListStruct(common::ValueVector& operand, common::ValueVector& result) {
+        executeSwitch<OPERAND_TYPE, RESULT_TYPE, FUNC, UnaryListOperationWrapper>(operand, result);
     }
 
     template<typename OPERAND_TYPE, typename RESULT_TYPE, typename FUNC>
