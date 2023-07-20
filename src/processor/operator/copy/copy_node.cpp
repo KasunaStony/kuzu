@@ -1,7 +1,7 @@
 #include "processor/operator/copy/copy_node.h"
 
 #include "common/string_utils.h"
-
+#include <iostream>
 namespace kuzu {
 namespace processor {
 
@@ -23,6 +23,7 @@ void CopyNodeSharedState::initializePrimaryKey(
             storage::StorageUtils::getNodeIndexFName(
                 directory, nodeTableSchema->tableID, common::DBFileType::ORIGINAL),
             nodeTableSchema->getPrimaryKey().dataType);
+        std::cout << "initializePrimaryKey: " << numRows << std::endl;
         pkIndex->bulkReserve(numRows);
     }
     for (auto& property : nodeTableSchema->properties) {
@@ -48,7 +49,7 @@ void CopyNodeSharedState::initializeColumns(
 }
 
 void CopyNode::executeInternal(kuzu::processor::ExecutionContext* context) {
-    {
+    {   
         std::unique_lock xLck{sharedState->mtx};
         if (!sharedState->hasLoggedWAL) {
             localState->wal->logCopyNodeRecord(localState->table->getTableID());
@@ -121,6 +122,7 @@ void CopyNode::appendToPKIndex<int64_t>(
         auto offset = i + startOffset;
         auto value = chunk->getValue<int64_t>(i);
         sharedState->pkIndex->append(value, offset);
+        //std::cout << "appendToPKIndex: " << value << " " << offset << std::endl;
     }
 }
 
