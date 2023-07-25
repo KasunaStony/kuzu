@@ -23,7 +23,6 @@ void CopyNodeSharedState::initializePrimaryKey(
             storage::StorageUtils::getNodeIndexFName(
                 directory, nodeTableSchema->tableID, common::DBFileType::ORIGINAL),
             nodeTableSchema->getPrimaryKey().dataType);
-        std::cout << "initializePrimaryKey: " << numRows << std::endl;
         pkIndex->bulkReserve(numRows);
     }
     for (auto& property : nodeTableSchema->properties) {
