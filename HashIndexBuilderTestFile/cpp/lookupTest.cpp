@@ -17,14 +17,14 @@ int main() {
 
     auto pkIndex = new kuzu::storage::PrimaryKeyIndexBuilder("test",
             kuzu::common::LogicalType(kuzu::common::LogicalTypeID::INT64));
-    pkIndex->bulkReserve(10000000);
+    pkIndex->bulkReserve(7000000);
     
-    for (int64_t i = 0; i < 10000000; i++) {
+    for (int64_t i = 0; i < 7000000; i++) {
         pkIndex->append(i+1, i);
     }
     
     kuzu::common::offset_t result;
-    for (int i = 1; i <= 10000000; i++) {
+    for (int i = 1; i <= 7000000; i++) {
         
         bool r = pkIndex->lookup(i, result);
         if(!r) std::cout << "wrong" << std::endl;

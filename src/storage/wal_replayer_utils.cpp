@@ -48,7 +48,7 @@ void WALReplayerUtils::createEmptyDBFilesForNewNodeTable(
     }
     switch (nodeTableSchema->getPrimaryKey().dataType.getLogicalTypeID()) {
     case LogicalTypeID::INT64: {
-        auto pkIndex = make_unique<HashIndexBuilder<int64_t>>(
+        auto pkIndex = make_unique<HashIndexBuilderInt64>(
             StorageUtils::getNodeIndexFName(
                 directory, nodeTableSchema->tableID, DBFileType::ORIGINAL),
             nodeTableSchema->getPrimaryKey().dataType);
@@ -56,7 +56,7 @@ void WALReplayerUtils::createEmptyDBFilesForNewNodeTable(
         pkIndex->flush();
     } break;
     case LogicalTypeID::STRING: {
-        auto pkIndex = make_unique<HashIndexBuilder<ku_string_t>>(
+        auto pkIndex = make_unique<HashIndexBuilderString>(
             StorageUtils::getNodeIndexFName(
                 directory, nodeTableSchema->tableID, DBFileType::ORIGINAL),
             nodeTableSchema->getPrimaryKey().dataType);

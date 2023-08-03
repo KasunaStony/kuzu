@@ -121,7 +121,6 @@ void CopyNode::appendToPKIndex<int64_t>(
         auto offset = i + startOffset;
         auto value = chunk->getValue<int64_t>(i);
         sharedState->pkIndex->append(value, offset);
-        //std::cout << "appendToPKIndex: " << value << " " << offset << std::endl;
     }
 }
 
@@ -146,7 +145,7 @@ void CopyNode::populatePKIndex(storage::InMemColumnChunk* chunk,
         }
     }
     // No nulls, so we can populate the index with actual values.
-    sharedState->pkIndex->lock();
+    //sharedState->pkIndex->lock();
     switch (chunk->getDataType().getLogicalTypeID()) {
     case common::LogicalTypeID::INT64: {
         appendToPKIndex<int64_t>(chunk, startOffset, numValues);
@@ -159,7 +158,7 @@ void CopyNode::populatePKIndex(storage::InMemColumnChunk* chunk,
         throw common::CopyException("Primary key must be either INT64, STRING or SERIAL.");
     }
     }
-    sharedState->pkIndex->unlock();
+    //sharedState->pkIndex->unlock();
 }
 
 } // namespace processor

@@ -170,57 +170,6 @@ private:
     std::atomic<uint64_t> numEntries;
 };
 
-
-template<typename T>
-class HashIndexBuilder : public BaseHashIndex {
-
-public:
-    HashIndexBuilder(const std::string& fName, const common::LogicalType& keyDataType);
-
-public:
-    // Reserves space for at least the specified number of elements.
-    void bulkReserve(uint32_t numEntries);
-
-    // Note: append assumes that bulkRserve has been called before it and the index has reserved
-    // enough space already.
-    inline bool append(int64_t key, common::offset_t value) {
-        return appendInternal(reinterpret_cast<const uint8_t*>(&key), value);
-    }
-    inline bool append(const char* key, common::offset_t value) {
-        return appendInternal(reinterpret_cast<const uint8_t*>(key), value);
-    }
-    inline bool lookup(int64_t key, common::offset_t& result) {
-        return lookupInternalWithoutLock(reinterpret_cast<const uint8_t*>(&key), result);
-    }
-
-    // Non-thread safe. This should only be called in the copyCSV and never be called in parallel.
-    void flush();
-
-private:
-    bool appendInternal(const uint8_t* key, common::offset_t value);
-    bool lookupInternalWithoutLock(const uint8_t* key, common::offset_t& result);
-
-    template<bool IS_LOOKUP>
-    bool lookupOrExistsInSlotWithoutLock(
-        Slot<T>* slot, const uint8_t* key, common::offset_t* result = nullptr);
-    void insertToSlotWithoutLock(Slot<T>* slot, const uint8_t* key, common::offset_t value);
-    Slot<T>* getSlot(const SlotInfo& slotInfo);
-    uint32_t allocatePSlots(uint32_t numSlotsToAllocate);
-    uint32_t allocateAOSlot();
-
-private:
-    std::unique_ptr<FileHandle> fileHandle;
-    std::unique_ptr<InMemDiskArrayBuilder<HashIndexHeader>> headerArray;
-    std::shared_mutex oSlotsSharedMutex;
-    std::unique_ptr<InMemDiskArrayBuilder<Slot<T>>> pSlots;
-    std::unique_ptr<InMemDiskArrayBuilder<Slot<T>>> oSlots;
-    std::vector<std::unique_ptr<std::mutex>> pSlotsMutexes;
-    in_mem_insert_function_t keyInsertFunc;
-    in_mem_equals_function_t keyEqualsFunc;
-    std::unique_ptr<InMemOverflowFile> inMemOverflowFile;
-    std::atomic<uint64_t> numEntries;
-};
-
 class PrimaryKeyIndexBuilder {
 public:
     PrimaryKeyIndexBuilder(const std::string& fName, const common::LogicalType& keyDataType)
