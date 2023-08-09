@@ -60,26 +60,40 @@ bool HashIndexBuilderInt64::appendInternal(const uint8_t* key, offset_t value) {
     uint8_t tag = 0;
     SlotInfo pSlotInfo{getPrimarySlotIdForKey(*indexHeader, key, &tag), SlotType::PRIMARY};
     auto currentSlotInfo = pSlotInfo;
-    Slot<int64_t>* currentSlot = nullptr;
-    while (currentSlotInfo.slotType == SlotType::PRIMARY || currentSlotInfo.slotId != 0) {
-        if (currentSlot) {
-            currentSlot->header.unlock();
-        }
-        currentSlot = getSlot(currentSlotInfo);
-        currentSlot->header.spinLock();
-        if (lookupOrExistsInSlotWithoutLock<false /* exists */>(currentSlot, key, tag)) {
-            // Key already exists. No append is allowed.
-            currentSlot->header.unlock();
-            return false;
-        }
-        if (currentSlot->header.numEntries < HashIndexConstants::SLOT_CAPACITY) {
-            break;
-        }
+
+    Slot<int64_t>* currentSlot = getSlot(currentSlotInfo);
+    currentSlot->header.spinLock();
+    if (lookupOrExistsInSlotWithoutLock<false /* exists */>(currentSlot, key, tag)) {
+        // Key already exists. No append is allowed.
+        currentSlot->header.unlock();
+        return false;
+    }
+    if (currentSlot->header.numEntries == HashIndexConstants::SLOT_CAPACITY) {
         currentSlotInfo.slotId = currentSlot->header.nextOvfSlotId;
         currentSlotInfo.slotType = SlotType::OVF;
+
+        while (currentSlotInfo.slotId != 0) {
+            currentSlot->header.unlock();
+
+            oSlotsSharedMutex.lock_shared();
+            currentSlot = getSlot(currentSlotInfo);
+            oSlotsSharedMutex.unlock_shared();
+
+            currentSlot->header.spinLock();
+            if (lookupOrExistsInSlotWithoutLock<false /* exists */>(currentSlot, key, tag)) {
+                // Key already exists. No append is allowed.
+                currentSlot->header.unlock();
+                return false;
+            }
+            if (currentSlot->header.numEntries < HashIndexConstants::SLOT_CAPACITY) {
+                break;
+            }
+            currentSlotInfo.slotId = currentSlot->header.nextOvfSlotId;
+        }
     }
+
     assert(currentSlot);
-    if (currentSlot->header.numEntries == HashIndexConstants::SLOT_CAPACITY) {
+    while (currentSlot->header.numEntries == HashIndexConstants::SLOT_CAPACITY) {
         // Allocate a new oSlot and change the nextOvfSlotId.
         oSlotsSharedMutex.lock();
         auto ovfSlotId = allocateAOSlot();
