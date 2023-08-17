@@ -65,47 +65,8 @@ bool HashIndexBuilderInt64::appendInternal(const uint8_t* key, offset_t value) {
     Slot<int64_t>* primarySlot = getSlot(currentSlotInfo);
     Slot<int64_t>* currentSlot = nullptr;
     
-    //primarySlot->header.spinLock();
+    primarySlot->header.spinLock();
 
-    while(true) {
-        uint32_t oldSlotVersion = primarySlot->header.slotVersion->load();
-
-        if (lookupOrExistsInSlotWithoutLock<false /* exists */>(primarySlot, key, tag)) {
-            //if (oldSlotVersion == primarySlot->header.slotVersion->load())
-            return false;
-        }
-
-        currentSlot = primarySlot;
-        if (currentSlot->header.numEntries == HashIndexConstants::SLOT_CAPACITY) {
-            currentSlotInfo.slotId = currentSlot->header.nextOvfSlotId;
-            currentSlotInfo.slotType = SlotType::OVF;
-
-            while (currentSlotInfo.slotId != 0) {
-
-                oSlotsSharedMutex.lock_shared();
-                currentSlot = getSlot(currentSlotInfo);
-                oSlotsSharedMutex.unlock_shared();
-
-                if (lookupOrExistsInSlotWithoutLock<false /* exists */>(currentSlot, key, tag)) {
-                    // Key already exists. No append is allowed.
-                    //if (oldSlotVersion == primarySlot->header.slotVersion->load())
-                    return false;
-                }
-
-                if (currentSlot->header.numEntries < HashIndexConstants::SLOT_CAPACITY) {
-                    break;
-                }
-                currentSlotInfo.slotId = currentSlot->header.nextOvfSlotId;
-            }
-        }
-        primarySlot->header.spinLock();
-        if (oldSlotVersion == primarySlot->header.slotVersion->load()) 
-            break;
-        else
-            primarySlot->header.unlock(false);
-    }
-
-    /*
     if (lookupOrExistsInSlotWithoutLock<false>(primarySlot, key, tag)) {
         // Key already exists. No append is allowed.
             primarySlot->header.unlock();
@@ -133,7 +94,7 @@ bool HashIndexBuilderInt64::appendInternal(const uint8_t* key, offset_t value) {
             currentSlotInfo.slotId = currentSlot->header.nextOvfSlotId;
         }
     }
-    */
+
     if (currentSlot->header.numEntries == HashIndexConstants::SLOT_CAPACITY) {
         auto ovfSlotId = getAOSlot();
         currentSlot->header.nextOvfSlotId = ovfSlotId;
@@ -144,7 +105,8 @@ bool HashIndexBuilderInt64::appendInternal(const uint8_t* key, offset_t value) {
     }
 
     insertToSlotWithoutLock(currentSlot, key, tag, value);
-    primarySlot->header.unlock(true);
+    primarySlot->header.unlock();
+    numEntries.fetch_add(1);
     return true;
 }
 
@@ -175,12 +137,10 @@ uint32_t HashIndexBuilderInt64::allocatePSlots(uint32_t numSlotsToAllocate) {
 }
 
 uint32_t HashIndexBuilderInt64::allocateOSlots(uint32_t numSlotsToAllocate) {
-    oSlotsSharedMutex.lock();
     auto oldNumSlots = oSlots->getNumElements();
     auto newNumSlots = oldNumSlots + numSlotsToAllocate;
     oSlots->resize(newNumSlots, true /* setToZero */);
     oSlotCapacity.store(newNumSlots);
-    oSlotsSharedMutex.unlock();
     return oldNumSlots;
 }
 
@@ -309,7 +269,7 @@ bool HashIndexBuilderString::appendInternal(const uint8_t* key, offset_t value) 
     primarySlot->header.spinLock();
     if (lookupOrExistsInSlotWithoutLock<false /* exists */>(primarySlot, key, tag)) {
         // Key already exists. No append is allowed.
-            primarySlot->header.unlock(false);
+            primarySlot->header.unlock();
             return false;
     }
     currentSlot = primarySlot;
@@ -345,7 +305,7 @@ bool HashIndexBuilderString::appendInternal(const uint8_t* key, offset_t value) 
 
     insertToSlotWithoutLock(currentSlot, key, tag, value);
     
-    primarySlot->header.unlock(true);
+    primarySlot->header.unlock();
     numEntries.fetch_add(1);
     return true;
 }

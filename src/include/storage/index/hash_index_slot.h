@@ -23,7 +23,7 @@ public:
 
     SlotHeader() : numEntries{0}, partialHash{0}, validityMask{0}, nextOvfSlotId{0} {
         slotLockState = std::make_shared<std::atomic<bool>>(false);
-        slotVersion = std::make_shared<std::atomic<uint32_t>>(0);
+        //slotVersion = std::make_shared<std::atomic<uint32_t>>(0);
     }
 
     void reset() {
@@ -32,7 +32,7 @@ public:
         partialHash = 0;
         nextOvfSlotId = 0;
         slotLockState = std::make_shared<std::atomic<bool>>(false);
-        slotVersion = std::make_shared<std::atomic<uint32_t>>(0);
+        //slotVersion = std::make_shared<std::atomic<uint32_t>>(0);
     }
 
     inline bool isEntryValid(__uint128_t entryPos) const {
@@ -73,10 +73,10 @@ public:
         }
     }
 
-    inline void unlock(bool increaseVersion) {
+    inline void unlock() {
         assert(slotLockState->load());
         slotLockState->store(false, std::memory_order_release);
-        if (increaseVersion) slotVersion->fetch_add(1);
+        //if (increaseVersion) slotVersion->fetch_add(1);
     }
     
 public:
@@ -85,7 +85,7 @@ public:
     __uint128_t validityMask;
     slot_id_t nextOvfSlotId;
     std::shared_ptr<std::atomic<bool>> slotLockState;
-    std::shared_ptr<std::atomic<uint32_t>> slotVersion;
+    //std::shared_ptr<std::atomic<uint32_t>> slotVersion;
 };
 
 template<typename T>
